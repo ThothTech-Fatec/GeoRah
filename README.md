@@ -77,9 +77,9 @@ A aplicação oferecerá:
 ---
 
 ## 🧷 Sprints
- ### <a href="./Relatorios/Sprint 1.md">1️⃣SPRINT 1 - Entrega: 28/09/2025) </a> ****
- ### <a href="./Relatorios/Sprint 2.md">2️⃣SPRINT 2 - Entrega: 06/10/2025) </a> ****
- ### <a href="./Relatorios/Sprint 3.md">3️⃣SPRINT 3 - Entrega: 03/11/2025) </a> ****  
+ ### <a href="./Relatorios/Sprint 1.md">1️⃣SPRINT 1 - Entrega: 28/09/2025) </a> 
+ ### <a href="./Relatorios/Sprint 2.md">2️⃣SPRINT 2 - Entrega: 06/10/2025) </a> 
+ ### <a href="./Relatorios/Sprint 3.md">3️⃣SPRINT 3 - Entrega: 03/11/2025) </a>  
 
 ---
 
