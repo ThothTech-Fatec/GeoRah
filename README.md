@@ -1,4 +1,4 @@
-# 📱 GeoRah
+<img width="1920" height="720" alt="Image" src="https://github.com/user-attachments/assets/23ae3eab-6253-404e-83c5-ce018ce2168b" />
 
 ## 🔍 Visão Geral
 Desenvolvido por nós, alunos da Fatec SJC Jessen Vidal, o GeoRah é um app para gestão de propriedades rurais. Com APIs do Google Maps e Plus Code, ele permite definir endereços, gerar rotas otimizadas e receber alertas em tempo real. Uma ferramenta inovadora para simplificar o trabalho no campo.
