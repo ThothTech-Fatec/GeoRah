@@ -13,7 +13,7 @@ A aplicação oferecerá:
 - Notificações push para alertas e interações rápidas.
 
 ## 🧩 MVP
-<img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/e2ed96ef-6aae-4979-83b6-cffa680219d2" />
+<img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/92705c69-cde4-4625-89bb-add108756f69" />
 
 ---
 
