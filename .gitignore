@@ -1,0 +1,39 @@
+# Arquivos de log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Diretório de dependências (recriado com 'npm install')
+node_modules/
+
+# Diretório do Expo (cache e configurações locais da máquina)
+.expo/
+.expo-shared/
+
+# Arquivos de ambiente - NUNCA envie chaves de API ou segredos para o Git
+.env
+.env.*
+secrets.js
+
+# Diretórios de build nativo (gerados pelo Expo)
+android/
+ios/
+
+# Arquivos de cache
+.metro-cache/
+
+# Arquivos de configuração do editor de código
+.vscode/
+.idea/
+.cursor/
+
+# Arquivos de sistema operacional (macOS e Windows)
+.DS_Store
+Thumbs.db
+
+# Diretório de build para a versão web
+dist/
+web-build/
+
+# Relatórios de cobertura de testes
+coverage/
