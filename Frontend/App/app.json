@@ -48,6 +48,9 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "googleApiKey": "AIzaSyCGXYxZmfccCFJnQ5wGCrhTjy2A9-S2DvM"
     }
   }
 }
