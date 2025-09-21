@@ -1,16 +1,15 @@
 // app/(tabs)/profile.tsx
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { useRouter } from 'expo-router'; // 1. Importe o useRouter
 import { FontAwesome } from '@expo/vector-icons';
+import { useAuth } from '../../context/AuthContext'; // Importe o useAuth
 
 export default function ProfileScreen() {
-  const router = useRouter(); // 2. Inicialize o router
+  const { logout } = useAuth(); // Pegue a função logout
 
-  // 3. Crie a função para fazer logout
   const handleLogout = () => {
-    // 'replace' navega para a tela de login e impede o usuário de voltar
-    router.replace('/login');
+    logout(); // Chame a função do contexto
+    // A navegação será tratada automaticamente
   };
 
   return (

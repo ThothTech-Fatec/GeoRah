@@ -1,20 +1,41 @@
+// app/login.tsx
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
-import { useRouter } from "expo-router";
-import styles from "./styles/login"; 
+import axios from "axios"
+import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
+import { Link } from "expo-router";
+import { useAuth } from "../context/AuthContext"; // 1. Importe o useAuth
+import Constants from 'expo-constants'; // Importe o Constants
+import styles from "./styles/login";
+
+//    Substitua 'SEU_IP_AQUI' pelo endereço IPv4 que você encontrou
+const API_URL = "http://10.0.2.2:3000";
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState("");
+  const [cpf, setCpf] = useState("");
   const [senha, setSenha] = useState("");
-  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const { login } = useAuth(); // 2. Pegue a função de login do contexto
 
-  const handleLogin = () => {
-    if (email === "" || senha === "") {
-      alert("Preencha todos os campos!");
+  const handleLogin = async () => {
+    if (cpf === "" || senha === "") {
+      Alert.alert("Erro", "Preencha todos os campos!");
       return;
     }
-
-    router.replace("/(tabs)");
+    setIsLoading(true);
+    try {
+      const response = await axios.post(`${API_URL}/login`, { cpf, senha });
+      await login(response.data.token);
+    } catch (error) {
+      // eslint-disable-next-line import/no-named-as-default-member
+      if (axios.isAxiosError(error) && error.response) {
+        Alert.alert("Erro no Login", error.response.data.message || "Ocorreu um erro.");
+      } else {
+        console.error("Erro na requisição:", error);
+        Alert.alert("Erro de Conexão", "Não foi possível conectar ao servidor.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -23,11 +44,10 @@ export default function LoginScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="Digite seu e-mail"
-        value={email}
-        onChangeText={setEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
+        placeholder="Digite seu CPF"
+        value={cpf}
+        onChangeText={setCpf}
+        keyboardType="numeric" // Mudei para teclado numérico para o CPF
       />
 
       <TextInput
@@ -38,9 +58,21 @@ export default function LoginScreen() {
         secureTextEntry
       />
 
-      <TouchableOpacity style={styles.button} onPress={handleLogin}>
-        <Text style={styles.buttonText}>Entrar</Text>
+      <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={isLoading}>
+        {isLoading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>Entrar</Text>
+        )}
       </TouchableOpacity>
+
+      <Link href="/register" asChild>
+        <TouchableOpacity style={{ marginTop: 20 }}>
+          <Text style={{ color: '#007BFF', fontSize: 16 }}>
+            Não tem uma conta? Cadastre-se agora
+          </Text>
+        </TouchableOpacity>
+      </Link>
     </View>
   );
 }
