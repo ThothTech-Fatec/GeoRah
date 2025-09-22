@@ -1,35 +1,33 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+// app/(tabs)/_layout.tsx
+import { Tabs } from "expo-router";
+import { FontAwesome } from '@expo/vector-icons';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
+    <Tabs>
+      {/* Aba 1: Mapa */}
       <Tabs.Screen
-        name="index"
+        name="index" // Aponta para o arquivo index.tsx (mapa)
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'Mapa',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <FontAwesome name="map" size={size} color={color} />
+          ),
         }}
       />
+
+      {/* Aba 2: Perfil */}
       <Tabs.Screen
-        name="explore"
+        name="profile" // Aponta para o arquivo profile.tsx
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Perfil', // Corrigi o título para "Perfil" para corresponder à página
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <FontAwesome name="user" size={size} color={color} />
+          ),
         }}
       />
     </Tabs>
   );
-}
+} 

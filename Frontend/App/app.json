@@ -23,8 +23,10 @@
           "apiKey": "AIzaSyCGXYxZmfccCFJnQ5wGCrhTjy2A9-S2DvM"
         }
       },
+      "usesCleartextTraffic": true,
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.flavinn"
     },
     "web": {
       "output": "static",
@@ -43,11 +45,15 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "googleApiKey": "AIzaSyCGXYxZmfccCFJnQ5wGCrhTjy2A9-S2DvM"
     }
   }
 }

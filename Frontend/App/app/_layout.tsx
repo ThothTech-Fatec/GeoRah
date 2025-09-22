@@ -1,24 +1,30 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+// app/_layout.tsx
+import { Stack } from "expo-router";
+import { AuthProvider, useAuth } from "../context/AuthContext"; // 1. Importe o AuthProvider
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+// Componente para proteger as rotas
+function RootLayoutNav() {
+  const { isLoading } = useAuth();
 
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  // Você pode adicionar uma tela de splash/loading aqui enquanto o token é verificado
+  if (isLoading) {
+    return null; 
+  }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Stack>
+      <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Screen name="register" options={{ title: 'Cadastro', headerBackTitle: 'Voltar' }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    // 2. Envolva o layout com o AuthProvider
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
   );
 }
