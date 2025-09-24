@@ -1,0 +1,36 @@
+-- Cria o banco de dados se ele não existir
+CREATE DATABASE IF NOT EXISTS georah_db;
+
+-- Seleciona o banco de dados para usar
+USE georah_db;
+
+-- Tabela para armazenar os usuários
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    cpf VARCHAR(11) NOT NULL UNIQUE,
+    nome_completo VARCHAR(255) NOT NULL,
+    senha VARCHAR(255) NOT NULL, -- Usaremos um hash, não a senha pura
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela para armazenar as propriedades
+CREATE TABLE IF NOT EXISTS properties (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    car_code VARCHAR(100) NOT NULL UNIQUE, -- Código do CAR
+    nome_propriedade VARCHAR(255) NOT NULL,
+    municipio VARCHAR(100),
+    uf CHAR(2),
+    latitude DECIMAL(10, 8), -- Coordenadas para o mapa
+    longitude DECIMAL(11, 8),
+    possui_endereco BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Adiciona a nova coluna para armazenar o Plus Code
+ALTER TABLE properties
+ADD COLUMN plus_code VARCHAR(255) NULL AFTER car_code;
+
+Select users.nome_completo, properties.nome_propriedade, properties.plus_code FROM users
+inner join properties on users.id = properties.user_id
