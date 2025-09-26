@@ -16,6 +16,17 @@ export default function TabLayout() {
           ),
         }}
       />
+      
+      <Tabs.Screen
+        name="properties" // Aponta para o novo arquivo properties.tsx
+        options={{
+          title: 'Propriedades',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <FontAwesome name="list" size={size} color={color} />
+          ),
+        }}
+      />
 
       {/* Aba 2: Perfil */}
       <Tabs.Screen

@@ -1,7 +1,7 @@
 // app/(tabs)/index.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Callout } from 'react-native-maps';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
@@ -9,9 +9,19 @@ import axios from 'axios';
 const API_URL = "http://10.0.2.2:3000";
 const API_KEY = Constants.expoConfig?.extra?.googleApiKey;
 
+type Property = {
+  id: number;
+  nome_propriedade: string;
+  car_code: string;
+  latitude: number;
+  longitude: number;
+  plus_code: string;
+};
+
 export default function MapScreen() {
   const { authToken } = useAuth();
 
+  const [properties, setProperties] = useState<Property[]>([]);
   const [plusCode, setPlusCode] = useState<string | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -20,6 +30,7 @@ export default function MapScreen() {
   const [nomePropriedade, setNomePropriedade] = useState("");
   const [codigoCar, setCodigoCar] = useState("");
 
+  
   const initialCoordinates = {
     latitude: -23.1791,
     longitude: -45.8872,
@@ -31,7 +42,27 @@ export default function MapScreen() {
     longitudeDelta: 0.0421,
   };
 
-    const getPlusCodeFromCoordinates = async (latitude: number, longitude: number): Promise<string | null> => {
+  useEffect(() => {
+    const fetchProperties = async () => {
+      if (!authToken) return; // Só busca se o usuário estiver logado
+
+      try {
+        const response = await axios.get(`${API_URL}/properties`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+        setProperties(response.data); // Armazena as propriedades no estado
+      } catch (error) {
+        console.error("Erro ao buscar propriedades:", error);
+        Alert.alert("Erro", "Não foi possível carregar suas propriedades.");
+      }
+    };
+
+    fetchProperties();
+  }, [authToken]);
+
+  const getPlusCodeFromCoordinates = async (latitude: number, longitude: number): Promise<string | null> => {
     if (!API_KEY) {
       Alert.alert("Erro", "Chave de API do Google não encontrada.");
       return null;
@@ -123,6 +154,19 @@ export default function MapScreen() {
             pinColor="blue"
           />
         )}
+        {properties.map((prop) => (
+          <Marker
+            key={prop.id}
+            coordinate={{
+              latitude: prop.latitude,
+              longitude: prop.longitude,
+            }}
+            title={prop.nome_propriedade}
+            // --- CORREÇÃO APLICADA AQUI ---
+            description={`CAR: ${prop.car_code}\nPlus Code: ${prop.plus_code}`}
+            pinColor="green"
+          />
+        ))}
       </MapView>
 
       <Modal

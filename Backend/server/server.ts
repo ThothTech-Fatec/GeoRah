@@ -1,6 +1,7 @@
 // backend/server.ts
 import 'dotenv/config'; // MOVIDO PARA O TOPO
 import express, { Request, Response } from 'express';
+import { RowDataPacket } from 'mysql2';
 import mysql from 'mysql2';
 import bcrypt from 'bcryptjs';
 import cors from 'cors';
@@ -96,12 +97,24 @@ app.post('/register', (req: Request, res: Response) => {
 app.get('/properties', protect, (req: any, res: Response) => {
   const userId = req.user.id; // Pegamos o ID do usuário do token
 
-  const query = 'SELECT id, car_code, nome_propriedade FROM properties WHERE user_id = ?';
+  const query = 'SELECT id, car_code, nome_propriedade, latitude, longitude, plus_code FROM properties WHERE user_id = ?';
   db.query(query, [userId], (err, results) => {
     if (err) {
       return res.status(500).json({ message: 'Erro ao buscar propriedades.' });
     }
-    res.status(200).json(results);
+
+    // 3. Verifique se 'results' é um array antes de usar .map()
+    if (Array.isArray(results)) {
+      const formattedResults = (results as RowDataPacket[]).map(property => ({
+        ...property,
+        latitude: parseFloat(property.latitude),
+        longitude: parseFloat(property.longitude),
+      }));
+      return res.status(200).json(formattedResults);
+    }
+
+    // Caso não seja um array (pouco provável para um SELECT, mas seguro)
+    return res.status(200).json([]);
   });
 });
 
