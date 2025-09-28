@@ -1,58 +1,75 @@
 // app/(tabs)/properties.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { useProperties } from '../../context/PropertyContext';
+import { useMap } from '../../context/MapContext';
 import axios from 'axios';
 import { FontAwesome } from '@expo/vector-icons';
-import { useIsFocused } from '@react-navigation/native'; // Hook para recarregar a tela
+import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 
 const API_URL = "http://10.0.2.2:3000";
 
-type Property = {
-  id: number;
-  nome_propriedade: string;
-  car_code: string;
-  plus_code: string;
-};
-
 export default function PropertiesScreen() {
   const { authToken } = useAuth();
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const isFocused = useIsFocused(); // Verifica se a tela está em foco
-
-  const fetchProperties = async () => {
-    if (!authToken) return;
-    setIsLoading(true);
-    try {
-      const response = await axios.get(`${API_URL}/properties`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      setProperties(response.data);
-    } catch (error) {
-      Alert.alert("Erro", "Não foi possível carregar suas propriedades.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { properties, isLoading, fetchProperties, deleteProperty } = useProperties();
+  const { focusOnLocation } = useMap();
+  const router = useRouter();
+  const isFocused = useIsFocused();
 
   useEffect(() => {
     if (isFocused) {
       fetchProperties();
     }
-  }, [isFocused, authToken]); // Recarrega quando a tela fica visível
+  }, [fetchProperties, isFocused]);
 
-  const renderPropertyItem = ({ item }: { item: Property }) => (
+  const handleViewOnMap = (latitude: number, longitude: number) => {
+    focusOnLocation({ latitude, longitude });
+    router.push('/');
+  };
+
+  const handleDeleteProperty = (propertyId: number) => {
+    Alert.alert(
+      "Confirmar Exclusão",
+      "Tem certeza de que deseja excluir esta propriedade?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Excluir",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await axios.delete(`${API_URL}/properties/${propertyId}`, {
+                headers: { Authorization: `Bearer ${authToken}` },
+              });
+              deleteProperty(propertyId); // Notifica o contexto para remover a propriedade
+              Alert.alert("Sucesso", "Propriedade excluída com sucesso.");
+            } catch (error) {
+              // eslint-disable-next-line import/no-named-as-default-member
+              if (axios.isAxiosError(error) && error.response) {
+                Alert.alert("Erro", error.response.data.message);
+              } else {
+                Alert.alert("Erro", "Ocorreu um erro de conexão.");
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const renderPropertyItem = ({ item }: { item: any }) => (
     <View style={styles.propertyCard}>
       <Text style={styles.propertyName}>{item.nome_propriedade}</Text>
       <Text style={styles.propertyInfo}>CAR: {item.car_code}</Text>
       <Text style={styles.propertyInfo}>Plus Code: {item.plus_code}</Text>
       <View style={styles.buttonContainer}>
-        <Pressable style={[styles.button, styles.viewButton]} onPress={() => Alert.alert("A Fazer", "Navegar para o mapa.")}>
+        <Pressable style={[styles.button, styles.viewButton]} onPress={() => handleViewOnMap(item.latitude, item.longitude)}>
           <FontAwesome name="map-marker" size={16} color="white" />
           <Text style={styles.buttonText}>Ver no Mapa</Text>
         </Pressable>
-        <Pressable style={[styles.button, styles.deleteButton]} onPress={() => Alert.alert("A Fazer", `Excluir propriedade ${item.id}`)}>
+        <Pressable style={[styles.button, styles.deleteButton]} onPress={() => handleDeleteProperty(item.id)}>
           <FontAwesome name="trash" size={16} color="white" />
           <Text style={styles.buttonText}>Excluir</Text>
         </Pressable>
@@ -83,61 +100,15 @@ export default function PropertiesScreen() {
 
 // Estilos
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    backgroundColor: '#f2f2f2',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    marginTop: 30, // Espaço para o topo da tela
-  },
-  propertyCard: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 15,
-    elevation: 3,
-  },
-  propertyName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  propertyInfo: {
-    fontSize: 16,
-    color: '#555',
-    marginTop: 5,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    marginTop: 15,
-    justifyContent: 'flex-end',
-  },
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    marginLeft: 10,
-  },
-  viewButton: {
-    backgroundColor: '#007BFF',
-  },
-  deleteButton: {
-    backgroundColor: '#d9534f',
-  },
-  buttonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  emptyText: {
-    textAlign: 'center',
-    fontSize: 16,
-    marginTop: 50,
-    color: '#666',
-  },
+  container: { flex: 1, padding: 20, backgroundColor: '#f2f2f2' },
+  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 20, marginTop: 30 },
+  propertyCard: { backgroundColor: 'white', padding: 20, borderRadius: 10, marginBottom: 15, elevation: 3 },
+  propertyName: { fontSize: 20, fontWeight: 'bold' },
+  propertyInfo: { fontSize: 16, color: '#555', marginTop: 5 },
+  buttonContainer: { flexDirection: 'row', marginTop: 15, justifyContent: 'flex-end' },
+  button: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, marginLeft: 10 },
+  viewButton: { backgroundColor: '#007BFF' },
+  deleteButton: { backgroundColor: '#d9534f' },
+  buttonText: { color: 'white', fontWeight: 'bold', marginLeft: 8 },
+  emptyText: { textAlign: 'center', fontSize: 16, marginTop: 50, color: '#666' },
 });

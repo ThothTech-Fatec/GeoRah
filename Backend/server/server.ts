@@ -156,6 +156,28 @@ app.post('/properties', protect, (req: any, res: Response) => {
   });
 });
 
+app.delete('/properties/:id', protect, (req: any, res: Response) => {
+  const propertyId = req.params.id; // Pega o ID da URL
+  const userId = req.user.id; // Pega o ID do usuário logado (do token)
+
+  // Query para deletar a propriedade, garantindo que ela pertence ao usuário logado
+  const query = 'DELETE FROM properties WHERE id = ? AND user_id = ?';
+  
+  db.query(query, [propertyId, userId], (err, results: any) => {
+    if (err) {
+      console.error("Erro no banco ao deletar:", err);
+      return res.status(500).json({ message: 'Erro ao excluir a propriedade.' });
+    }
+
+    // A propriedade 'affectedRows' nos diz se alguma linha foi de fato deletada
+    if (results.affectedRows === 0) {
+      return res.status(404).json({ message: 'Propriedade não encontrada ou não pertence a você.' });
+    }
+
+    res.status(200).json({ message: 'Propriedade excluída com sucesso.' });
+  });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);

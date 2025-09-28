@@ -14,6 +14,7 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isGuest, setIsGuest] = useState(false); // 1. NOVO ESTADO
   const segments = useSegments();
   const router = useRouter();
 
@@ -49,19 +50,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [authToken, segments, isLoading, router]);
 
   const login = async (token: string) => {
-    await SecureStore.setItemAsync('authToken', token);
+    // 2. Lógica para diferenciar o login
+    if (token === 'guest-token') {
+      setIsGuest(true);
+    } else {
+      setIsGuest(false);
+      await SecureStore.setItemAsync('authToken', token);
+    }
     setAuthToken(token);
   };
 
   const logout = async () => {
     await SecureStore.deleteItemAsync('authToken');
     setAuthToken(null);
+    setIsGuest(false); // 3. Limpa o estado de convidado no logout
   };
 
   const value = {
     login,
     logout,
     authToken,
+    isGuest, // 4. Exponha o estado de convidado
     isLoading,
   };
 

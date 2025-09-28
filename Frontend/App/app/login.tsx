@@ -1,21 +1,20 @@
 // app/login.tsx
 import React, { useState } from "react";
-import axios from "axios"
-import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
-import { Link } from "expo-router";
-import { useAuth } from "../context/AuthContext"; // 1. Importe o useAuth
-import Constants from 'expo-constants'; // Importe o Constants
-import styles from "./styles/login";
+import { View, Text, TextInput, TouchableOpacity, Image, ActivityIndicator, Alert, StyleSheet } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { useAuth } from "../context/AuthContext";
+import axios from 'axios';
+import { Link } from "expo-router"; // 1. Importe o Link para o cadastro
 
-//    Substitua 'SEU_IP_AQUI' pelo endereço IPv4 que você encontrou
 const API_URL = "http://10.0.2.2:3000";
 
 export default function LoginScreen() {
   const [cpf, setCpf] = useState("");
   const [senha, setSenha] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth(); // 2. Pegue a função de login do contexto
+  const { login } = useAuth();
 
+  // 2. CORRIGIDO: Lógica de login real com a API
   const handleLogin = async () => {
     if (cpf === "" || senha === "") {
       Alert.alert("Erro", "Preencha todos os campos!");
@@ -24,13 +23,12 @@ export default function LoginScreen() {
     setIsLoading(true);
     try {
       const response = await axios.post(`${API_URL}/login`, { cpf, senha });
-      await login(response.data.token);
+      await login(response.data.token); // Usa o token real retornado pela API
     } catch (error) {
       // eslint-disable-next-line import/no-named-as-default-member
       if (axios.isAxiosError(error) && error.response) {
         Alert.alert("Erro no Login", error.response.data.message || "Ocorreu um erro.");
       } else {
-        console.error("Erro na requisição:", error);
         Alert.alert("Erro de Conexão", "Não foi possível conectar ao servidor.");
       }
     } finally {
@@ -38,16 +36,27 @@ export default function LoginScreen() {
     }
   };
 
+  // 3. Lógica para o login de convidado
+  const handleGuestLogin = async () => {
+    await login("guest-token"); // Usa um token especial para identificar o convidado
+  };
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Login</Text>
+    <LinearGradient colors={["#00C6FB", "#005BEA"]} style={styles.container}>
+      <Image
+        style={styles.logo}
+        source={require('../assets/images/login.png')} // Exemplo de como adicionar o logo
+      />
+
+      <Text style={styles.appTitle}>GeoRah</Text>
+      <Text style={styles.subtitle}>Mapeamento Rural Inteligente</Text>
 
       <TextInput
         style={styles.input}
         placeholder="Digite seu CPF"
         value={cpf}
         onChangeText={setCpf}
-        keyboardType="numeric" // Mudei para teclado numérico para o CPF
+        keyboardType="numeric"
       />
 
       <TextInput
@@ -59,20 +68,72 @@ export default function LoginScreen() {
       />
 
       <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={isLoading}>
-        {isLoading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Entrar</Text>
-        )}
+        {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Entrar</Text>}
+      </TouchableOpacity>
+      
+      <TouchableOpacity style={[styles.button, { backgroundColor: "#4CAF50", marginTop: 10 }]} onPress={handleGuestLogin}>
+        <Text style={styles.buttonText}>Entrar como Convidado</Text>
       </TouchableOpacity>
 
+      {/* 4. BOTÃO DE CADASTRO ADICIONADO */}
       <Link href="/register" asChild>
         <TouchableOpacity style={{ marginTop: 20 }}>
-          <Text style={{ color: '#007BFF', fontSize: 16 }}>
+          <Text style={styles.linkText}>
             Não tem uma conta? Cadastre-se agora
           </Text>
         </TouchableOpacity>
       </Link>
-    </View>
+    </LinearGradient>
   );
 }
+
+// Estilos (adicionados alguns para o novo design)
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  logo: {
+    width: 120,
+    height: 120,
+    marginBottom: 20,
+  },
+  appTitle: {
+    fontSize: 32,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "#f0f0f0",
+    marginBottom: 40,
+  },
+  input: {
+    width: "100%",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 10,
+    fontSize: 16,
+  },
+  button: {
+    width: "100%",
+    backgroundColor: "#007BFF",
+    padding: 15,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  linkText: {
+    color: '#fff',
+    fontSize: 16,
+  }
+});
