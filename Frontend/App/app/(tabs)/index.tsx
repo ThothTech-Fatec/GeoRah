@@ -4,19 +4,23 @@ import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput,
 import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Callout } from 'react-native-maps';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
-import { useProperties } from '../../context/PropertyContext';
+import { useProperties, Property } from '../../context/PropertyContext';
 import { useMap } from '../../context/MapContext';
+import { useIsFocused } from '@react-navigation/native';
 import axios from 'axios';
 
 const API_URL = "http://10.0.2.2:3000";
 const API_KEY = Constants.expoConfig?.extra?.googleApiKey;
 
+
+
 export default function MapScreen() {
   const { authToken, isGuest } = useAuth();
-  const { properties, addProperty } = useProperties();
+  const { properties: userProperties, addProperty } = useProperties();
   const { locationToFocus } = useMap();
   const mapViewRef = useRef<MapView>(null);
-
+  const isFocused = useIsFocused();
+  const [mapProperties, setMapProperties] = useState<Property[]>([]);
   const [plusCode, setPlusCode] = useState<string | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,6 +35,30 @@ export default function MapScreen() {
     latitudeDelta: 0.8822,
     longitudeDelta: 0.5821,
   };
+
+  useEffect(() => {
+    const fetchAllPublicProperties = async () => {
+      setIsLoading(true);
+      try {
+        const response = await axios.get(`${API_URL}/properties/public`);
+        setMapProperties(response.data);
+      } catch (error) {
+        console.error("Erro ao buscar propriedades públicas:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (isFocused) {
+      if (isGuest) {
+        // Se for convidado, busca todas as propriedades públicas
+        fetchAllPublicProperties();
+      } else {
+        // Se for um usuário logado, usa as propriedades do contexto
+        setMapProperties(userProperties);
+      }
+    }
+  }, [isGuest, userProperties, isFocused]);
 
   useEffect(() => {
     if (locationToFocus && mapViewRef.current) {
@@ -135,7 +163,7 @@ export default function MapScreen() {
           <Marker coordinate={clickedLocation} title="Local Escolhido" pinColor="blue" />
         )}
 
-        {properties.map((prop) => (
+        {mapProperties.map((prop) => (
           <Marker
             key={prop.id}
             coordinate={{
@@ -143,7 +171,11 @@ export default function MapScreen() {
               longitude: prop.longitude,
             }}
             title={prop.nome_propriedade}
-            description={`Plus Code: ${prop.plus_code}`}
+            description={
+              isGuest && prop.owner_name
+                ? `Proprietário: ${prop.owner_name} Plus Code: ${prop.plus_code}`
+                : `Plus Code: ${prop.plus_code}`
+            }
             pinColor="green"
           />
         ))}

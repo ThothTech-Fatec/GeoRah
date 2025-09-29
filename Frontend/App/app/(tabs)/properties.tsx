@@ -2,7 +2,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { useProperties } from '../../context/PropertyContext';
+import { useProperties, Property } from '../../context/PropertyContext';
 import { useMap } from '../../context/MapContext';
 import axios from 'axios';
 import { FontAwesome } from '@expo/vector-icons';
