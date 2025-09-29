@@ -22,13 +22,13 @@ A aplicação oferecerá:
 
 | Rank | Prioridade | User Story | Estimativa | Sprint | Requisito do Parceiro | Critério de Aceitação | Status |
 |------|------------|------------|------------|--------|------------------------|-----------------------|--------|
-| 1 | Alta | Como usuário, quero logar com meu CPF. | 5 pts | 1 | Autenticação com CPF | Usuário consegue logar com sucesso. | ⏳ |
-| 2 | Alta | Como usuário, quero validar no CAR para acessar minhas propriedades. | 5 pts | 1 | Autenticação com CAR | Usuário consegue acessar suas propriedades. | ⏳ |
-| 3 | Alta | Como usuário, quero que minha sessão seja protegida com autenticação JWT/OAuth. | 3 pts | 1 | Segurança de login | Apenas usuários autenticados conseguem acessar. | ⏳ |
-| 4 | Média | Como visitante, quero acessar uma versão limitada do app sem login. | 2 pts | 1 | Acesso restrito | Visitantes acessam somente informações públicas. | ⏳ |
-| 5 | Alta | Como usuário, quero ver a listagem das minhas propriedades no app. | 5 pts | 1 | Exibição de propriedades | Propriedades vinculadas ao usuário aparecem listadas. | ⏳ |
-| 6 | Alta | Como usuário, quero visualizar minhas propriedades no mapa interativo. | 8 pts | 1 | Integração com mapa | Propriedades aparecem como marcadores no mapa. | ⏳ |
-| 7 | Média | Como usuário, quero diferenciar propriedades com e sem endereço no mapa. | 3 pts | 1 | Diferenciação visual | Marcadores mostram claramente se têm endereço ou não. | ⏳ |
+| 1 | Alta | Como usuário, quero logar com meu e-mail. | 5 pts | 1 | Autenticação com e-mail | Usuário consegue logar com sucesso. | ✅ |
+| 2 | Alta | Como usuário, quero que minha sessão seja protegida com autenticação JWT/OAuth. | 3 pts | 1 | Segurança de login | Apenas usuários autenticados conseguem acessar. | ✅ |
+| 3 | Média | Como visitante, quero acessar uma versão limitada do app sem login. | 2 pts | 1 | Acesso restrito | Visitantes acessam somente informações públicas. | ✅ |
+| 4 | Alta | Como usuário, quero ver a listagem das minhas propriedades no app. | 5 pts | 1 | Exibição de propriedades | Propriedades vinculadas ao usuário aparecem listadas. | ✅ |
+| 5 | Alta | Como usuário, quero visualizar minhas propriedades no mapa interativo. | 8 pts | 1 | Integração com mapa | Propriedades aparecem como marcadores no mapa. | ✅ |
+| 6 | Média | Como usuário, quero diferenciar propriedades com e sem endereço no mapa. | 3 pts | 1 | Diferenciação visual | Marcadores mostram claramente se têm endereço ou não. | ✅ |
+| 7 | Alta | Como usuário, quero validar no CAR para acessar minhas propriedades. | 5 pts | 2 | Autenticação com CAR | Usuário consegue acessar suas propriedades. | ⏳ |
 | 8 | Alta | Como usuário, quero definir o endereço da propriedade arrastando o marcador no mapa. | 5 pts | 2 | GPS/arrasto no mapa | Endereço atualizado é salvo corretamente. | ⏳ |
 | 9 | Alta | Como usuário, quero definir o endereço usando o GPS do dispositivo. | 5 pts | 2 | Integração com GPS | Coordenadas salvas automaticamente. | ⏳ |
 | 10 | Alta | Como usuário, quero salvar coordenadas associadas a minha propriedade. | 3 pts | 2 | Banco de dados integrado | Dados persistem no sistema. | ⏳ |
@@ -41,24 +41,13 @@ A aplicação oferecerá:
 | 17 | Baixa | Como usuário, quero que os alertas tenham validade/expiração automática. | 3 pts | 3 | Gerenciamento de alertas | Alertas vencidos desaparecem do mapa. | ⏳ |
 
 ---
+
 # ✅ Critérios de Aceitação Detalhados
 
-| Nº | Critério de Aceitação | Cenário de Teste |
-|----|------------------------|------------------|
-| 1.1 | Login integrado ao CAR | Dado que insiro um CPF válido, quando clico em "Entrar", então acesso minhas propriedades. |
-| 1.2 | Login integrado ao CAR | Dado que insiro um CPF inválido, quando tento logar, então devo ver mensagem de erro. |
-| 2.1 | Implementar JWT/OAuth | Dado que faço login, então devo receber um token de sessão válido. |
-| 2.2 | Implementar JWT/OAuth | Dado que meu token expira, quando tento acessar, então sou redirecionado para login. |
-| 4.1 | Listagem de propriedades | Dado que possuo propriedades cadastradas, quando entro no sistema, então vejo a lista completa. |
-| 5.1 | Integração mapa + propriedades | Dado que possuo propriedades, quando acesso o mapa, então cada propriedade aparece marcada. |
-| 6.1 | Ajuste manual de endereço | Dado que movo o marcador no mapa, então o endereço da propriedade deve ser atualizado. |
-| 7.1 | Uso do GPS nativo | Dado que habilito o GPS, quando capturo localização, então o sistema salva o ponto na propriedade. |
-| 8.1 | Certificação oficial | Dado que uma propriedade possui endereço válido, quando gero certificado, então recebo PDF oficial. |
-| 9.1 | Envio automático | Dado que gerei um certificado, quando finalizo processo, então recebo PDF por e-mail. |
-| 10.1 | Rotas no mapa | Dado que seleciono origem e destino, quando confirmo, então o sistema exibe rota. |
-| 11.1 | Opções de trajeto | Dado que seleciono origem e destino, então devo visualizar pelo menos duas rotas possíveis. |
-| 12.1 | Alertas no mapa | Dado que crio um alerta, quando salvo, então os outros usuários devem visualizar no mapa. |
-| 13.1 | Integração API clima | Dado que há alerta meteorológico, então ele deve aparecer no mapa com validade e ícone. |
+ ### <a href="./Relatorios/Críterios/Sprint1.md">1️⃣ Critérios referentes à 1ª Sprint </a> 
+ ### <a href="./Relatorios/Críterios/Sprint2.md">2️⃣ Critérios referentes à 2ª Sprint </a> 
+ ### <a href="./Relatorios/Críterios/Sprint3.md">3️⃣ Critérios referentes à 3ª Sprint </a>  
+
 ---
 
 ## 📈 Requisitos Funcionais
