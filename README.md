@@ -44,9 +44,9 @@ A aplicação oferecerá:
 
 # ✅ Critérios de Aceitação Detalhados
 
- ### <a href="./Relatorios/Críterios/Sprint1.md">1️⃣ Critérios referentes à 1ª Sprint </a> 
- ### <a href="./Relatorios/Críterios/Sprint2.md">2️⃣ Critérios referentes à 2ª Sprint </a> 
- ### <a href="./Relatorios/Críterios/Sprint3.md">3️⃣ Critérios referentes à 3ª Sprint </a>  
+ ### <a href="./Relatorios/Criterios/Sprint1.md">1️⃣ Critérios referentes à 1ª Sprint </a> 
+ ### <a href="./Relatorios/Criterios/Sprint2.md">2️⃣ Critérios referentes à 2ª Sprint </a> 
+ ### <a href="./Relatorios/Criterios/Sprint3.md">3️⃣ Critérios referentes à 3ª Sprint </a>  
 
 ---
 
