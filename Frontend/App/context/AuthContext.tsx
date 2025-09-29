@@ -1,8 +1,7 @@
 // app/context/AuthContext.tsx
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { useRouter, useSegments } from 'expo-router';
-
+import { useRouter, useSegments } from 'expo-router'; 
 const AuthContext = createContext<any>(null);
 
 // Hook customizado para usar o contexto de autenticação facilmente
@@ -23,6 +22,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const token = await SecureStore.getItemAsync('authToken');
         if (token) {
+          if (token === 'guest-token') setIsGuest(true);
           setAuthToken(token);
         }
       } catch (e) {
@@ -35,17 +35,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Não faça nada enquanto o token ainda está sendo carregado
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === '(tabs)';
 
-    if (!authToken && inAuthGroup) {
-      // Se não há token e o usuário está na área logada, redireciona para o login
-      router.replace('/login');
-    } else if (authToken && !inAuthGroup) {
-      // Se há um token e o usuário está fora da área logada (ex: na tela de login),
-      // redireciona para a tela principal
+    if (authToken && !inAuthGroup) {
+      // Se o usuário tem um token (acabou de logar) mas NÃO está na área logada,
+      // navegue para a tela principal.
       router.replace('/(tabs)');
+    } else if (!authToken && inAuthGroup) {
+      // Se o usuário NÃO tem um token (acabou de fazer logout) mas está na área logada,
+      // navegue para o login.
+      router.replace('/login');
     }
   }, [authToken, segments, isLoading, router]);
 

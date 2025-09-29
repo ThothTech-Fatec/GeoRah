@@ -178,6 +178,43 @@ app.delete('/properties/:id', protect, (req: any, res: Response) => {
   });
 });
 
+app.get('/properties/public', (req: Request, res: Response) => {
+  // 1. Query SQL que junta as tabelas 'properties' e 'users'
+  const query = `
+    SELECT 
+      p.id, 
+      p.nome_propriedade, 
+      p.car_code, 
+      p.latitude, 
+      p.longitude, 
+      p.plus_code,
+      u.nome_completo AS owner_name 
+    FROM 
+      properties p
+    JOIN 
+      users u ON p.user_id = u.id
+  `;
+  
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error("Erro ao buscar propriedades públicas:", err);
+      return res.status(500).json({ message: 'Erro ao buscar propriedades.' });
+    }
+
+    // 2. Mesma formatação de coordenadas que já fazemos
+    if (Array.isArray(results)) {
+      const formattedResults = (results as RowDataPacket[]).map(property => ({
+        ...property,
+        latitude: parseFloat(property.latitude),
+        longitude: parseFloat(property.longitude),
+      }));
+      return res.status(200).json(formattedResults);
+    }
+    
+    return res.status(200).json([]);
+  });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);

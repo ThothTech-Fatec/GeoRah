@@ -5,13 +5,14 @@ import { useAuth } from './AuthContext';
 
 const API_URL = "http://10.0.2.2:3000";
 
-type Property = {
+export type Property = {
   id: number;
   nome_propriedade: string;
   car_code: string;
   latitude: number;
   longitude: number;
   plus_code: string;
+  owner_name?: string; // Mantemos o owner_name opcional
 };
 
 type PropertyContextType = {
