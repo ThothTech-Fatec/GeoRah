@@ -12,8 +12,6 @@ import axios from 'axios';
 const API_URL = "http://10.0.2.2:3000";
 const API_KEY = Constants.expoConfig?.extra?.googleApiKey;
 
-
-
 export default function MapScreen() {
   const { authToken, isGuest } = useAuth();
   const { properties: userProperties, addProperty } = useProperties();

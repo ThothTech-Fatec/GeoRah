@@ -12,19 +12,19 @@ const API_URL = "http://10.0.2.2:3000";
 
 export default function RegisterScreen() {
   const [nome_completo, setNomeCompleto] = useState("");
-  const [cpf, setCpf] = useState("");
+  const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
    const handleRegister = async () => {
-    if (nome_completo === "" || cpf === "" || senha === "") {
+    if (nome_completo === "" || email === "" || senha === "") {
       Alert.alert("Erro", "Preencha todos os campos!");
       return;
     }
     setIsLoading(true);
     try {
-      await axios.post(`${API_URL}/register`, { nome_completo, cpf, senha });
+      await axios.post(`${API_URL}/register`, { nome_completo, email, senha });
       Alert.alert("Sucesso", "Cadastro realizado! Agora você pode fazer o login.");
       router.back();
     } catch (error) {
@@ -52,10 +52,11 @@ export default function RegisterScreen() {
       />
       <TextInput
         style={styles.input}
-        placeholder="CPF"
-        value={cpf}
-        onChangeText={setCpf}
-        keyboardType="numeric"
+        placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address" 
+        autoCapitalize="none"
       />
       <TextInput
         style={styles.input}

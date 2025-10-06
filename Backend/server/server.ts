@@ -34,14 +34,14 @@ db.connect(err => {
 });
 
 app.post('/login', (req: Request, res: Response) => {
-  const { cpf, senha } = req.body;
+  const { email, senha } = req.body;
   console.log('Recebida requisição na rota /login com o corpo:', req.body);
-  if (!cpf || !senha) {
-    return res.status(400).json({ message: 'CPF e senha são obrigatórios.' });
+  if (!email || !senha) {
+    return res.status(400).json({ message: 'email e senha são obrigatórios.' });
   }
 
-  const query = 'SELECT * FROM users WHERE cpf = ?';
-  db.query(query, [cpf], (err, results: any) => {
+  const query = 'SELECT * FROM users WHERE email = ?';
+  db.query(query, [email], (err, results: any) => {
     if (err || results.length === 0) {
       return res.status(404).json({ message: 'Usuário não encontrado.' });
     }
@@ -54,7 +54,7 @@ app.post('/login', (req: Request, res: Response) => {
       }
       
       // 4. Se a senha estiver correta, GERE O TOKEN
-      const payload = { id: user.id, cpf: user.cpf };
+      const payload = { id: user.id, email: user.email };
       const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1d' }); // Token expira em 1 dia
 
       // 5. Envie o token de volta para o frontend
@@ -67,9 +67,9 @@ app.post('/login', (req: Request, res: Response) => {
 });
 
 app.post('/register', (req: Request, res: Response) => {
-  const { nome_completo, cpf, senha } = req.body;
+  const { nome_completo, email, senha } = req.body;
 
-  if (!nome_completo || !cpf || !senha) {
+  if (!nome_completo || !email || !senha) {
     return res.status(400).json({ message: 'Todos os campos são obrigatórios.' });
   }
 
@@ -79,12 +79,12 @@ app.post('/register', (req: Request, res: Response) => {
       return res.status(500).json({ message: 'Erro ao criptografar a senha.' });
     }
 
-    const query = 'INSERT INTO users (nome_completo, cpf, senha) VALUES (?, ?, ?)';
-    db.query(query, [nome_completo, cpf, hash], (err, results) => {
+    const query = 'INSERT INTO users (nome_completo, email, senha) VALUES (?, ?, ?)';
+    db.query(query, [nome_completo, email, hash], (err, results) => {
       if (err) {
         // Trata o erro de CPF duplicado
         if (err.code === 'ER_DUP_ENTRY') {
-          return res.status(409).json({ message: 'Este CPF já está cadastrado.' });
+          return res.status(409).json({ message: 'Este email já está cadastrado.' });
         }
         return res.status(500).json({ message: 'Erro ao registrar o usuário.', error: err });
       }
