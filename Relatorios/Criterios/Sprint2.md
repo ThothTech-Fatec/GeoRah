@@ -59,7 +59,6 @@
 
 #### 13. Implementar Dados do Cliente (Área do Projeto, Área do Imóvel e Rotas)
 - **User Story:** Como usuário, quero visualizar e integrar os dados fornecidos pelo cliente (área do projeto, área do imóvel e rotas) para aprimorar a precisão das informações geográficas.
-- **Prioridade:** Alta  
 - **Critérios:**
   1. Os dados recebidos devem ser armazenados no banco e exibidos no mapa principal.  
   2. As áreas devem ser delimitadas com contornos e preenchimentos visuais distintos.  
