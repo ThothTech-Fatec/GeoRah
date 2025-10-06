@@ -3,7 +3,7 @@
 
 ### 🔹 User Stories e Critérios de Aceitação
 
-#### 13. Planejar Rotas entre Propriedades
+#### 14. Planejar Rotas entre Propriedades
 - **User Story:** Como usuário, quero planejar rotas entre duas propriedades.
 - **Critérios:**
   1. Usuário seleciona origem e destino no mapa.
@@ -12,7 +12,7 @@
 
 ---
 
-#### 14. Informações de Rotas (Tempo, Distância, Alternativas)
+#### 15. Informações de Rotas (Tempo, Distância, Alternativas)
 - **User Story:** Como usuário, quero ver tempo, distância e rotas alternativas.
 - **Critérios:**
   1. Sistema exibe tempo estimado de viagem.
@@ -21,7 +21,7 @@
 
 ---
 
-#### 15. Alertas Colaborativos
+#### 16. Alertas Colaborativos
 - **User Story:** Como usuário, quero criar alertas colaborativos sobre condições da estrada.
 - **Critérios:**
   1. Usuário pode cadastrar alerta com descrição e localização.
@@ -30,7 +30,7 @@
 
 ---
 
-#### 16. Alertas Meteorológicos
+#### 17. Alertas Meteorológicos
 - **User Story:** Como usuário, quero receber alertas meteorológicos integrados de uma API de clima.
 - **Critérios:**
   1. Sistema consome API externa de clima em tempo real.
@@ -39,7 +39,7 @@
 
 ---
 
-#### 17. Expiração de Alertas
+#### 18. Expiração de Alertas
 - **User Story:** Como usuário, quero que os alertas tenham validade/expiração automática.
 - **Critérios:**
   1. Cada alerta possui tempo de expiração definido.
@@ -47,3 +47,4 @@
   3. Usuário é notificado quando seus alertas expirarem.
 
 ---
+

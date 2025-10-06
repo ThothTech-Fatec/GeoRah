@@ -54,3 +54,18 @@
   1. Após geração, certificado é enviado automaticamente para o e-mail cadastrado.
   2. Usuário recebe mensagem de confirmação na tela.
   3. Caso o envio falhe, deve exibir mensagem clara e permitir reenvio.
+
+---
+
+#### 13. Implementar Dados do Cliente (Área do Projeto, Área do Imóvel e Rotas)
+- **User Story:** Como usuário, quero visualizar e integrar os dados fornecidos pelo cliente (área do projeto, área do imóvel e rotas) para aprimorar a precisão das informações geográficas.
+- **Prioridade:** Alta  
+- **Tempo estimado:** 2 dias úteis  
+- **Critérios:**
+  1. Os dados recebidos devem ser armazenados no banco e exibidos no mapa principal.  
+  2. As áreas devem ser delimitadas com contornos e preenchimentos visuais distintos.  
+  3. As rotas devem ser desenhadas automaticamente conforme os pontos fornecidos.  
+  4. O usuário deve conseguir visualizar e editar as informações sem perda de dados.  
+  5. Em caso de erro de importação, o sistema deve exibir mensagem clara e registrar o log.  
+
+---

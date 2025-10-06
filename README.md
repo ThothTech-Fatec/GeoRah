@@ -34,11 +34,12 @@ A aplicação oferecerá:
 | 10 | Alta | Como usuário, quero salvar coordenadas associadas a minha propriedade. | 3 pts | 2 | Banco de dados integrado | Dados persistem no sistema. | ⏳ |
 | 11 | Alta | Como usuário, quero gerar um certificado em PDF com meu endereço atualizado. | 5 pts | 2 | Certificado oficial | PDF é gerado corretamente. | ⏳ |
 | 12 | Alta | Como usuário, quero receber o certificado por e-mail automaticamente. | 3 pts | 2 | Integração com e-mail | Usuário recebe certificado no e-mail cadastrado. | ⏳ |
-| 13 | Alta | Como usuário, quero planejar rotas entre duas propriedades. | 8 pts | 3 | Rotas integradas ao mapa | Usuário visualiza caminho entre propriedades. | ⏳ |
-| 14 | Alta | Como usuário, quero ver tempo, distância e rotas alternativas. | 5 pts | 3 | API de rotas | Informações de tempo/distância aparecem corretamente. | ⏳ |
-| 15 | Média | Como usuário, quero criar alertas colaborativos sobre condições da estrada. | 5 pts | 3 | Alertas colaborativos | Alertas ficam visíveis no mapa. | ⏳ |
-| 16 | Média | Como usuário, quero receber alertas meteorológicos integrados de uma API de clima. | 5 pts | 3 | Integração com API de clima | Alertas aparecem em tempo real. | ⏳ |
-| 17 | Baixa | Como usuário, quero que os alertas tenham validade/expiração automática. | 3 pts | 3 | Gerenciamento de alertas | Alertas vencidos desaparecem do mapa. | ⏳ |
+| 13 | Alta | Como usuário, quero visualizar os dados fornecidos pelo cliente, incluindo área do projeto, área do imóvel e rotas. | 8 pts | 2 | Dados do cliente integrados | As informações de área e rotas aparecem corretamente no sistema e são vinculadas à propriedade. | ⏳ |
+| 14 | Alta | Como usuário, quero planejar rotas entre duas propriedades. | 8 pts | 3 | Rotas integradas ao mapa | Usuário visualiza caminho entre propriedades. | ⏳ |
+| 15 | Alta | Como usuário, quero ver tempo, distância e rotas alternativas. | 5 pts | 3 | API de rotas | Informações de tempo/distância aparecem corretamente. | ⏳ |
+| 16 | Média | Como usuário, quero criar alertas colaborativos sobre condições da estrada. | 5 pts | 3 | Alertas colaborativos | Alertas ficam visíveis no mapa. | ⏳ |
+| 17 | Média | Como usuário, quero receber alertas meteorológicos integrados de uma API de clima. | 5 pts | 3 | Integração com API de clima | Alertas aparecem em tempo real. | ⏳ |
+| 18 | Baixa | Como usuário, quero que os alertas tenham validade/expiração automática. | 3 pts | 3 | Gerenciamento de alertas | Alertas vencidos desaparecem do mapa. | ⏳ |
 
 ---
 
