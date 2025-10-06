@@ -2,16 +2,17 @@
 
 # 📄 Relatório Sprint - 02 (06/10/2025)
 
-A Sprint 2 teve como foco o endereçamento das propriedades, validação no CAR, associação de coordenadas e geração de certificados oficiais em PDF, incluindo o envio automático por e-mail.
+A Sprint 2 teve como foco o endereçamento das propriedades, validação no CAR, associação de coordenadas, integração dos dados fornecidos pelo cliente (área do projeto, área do imóvel e rotas) e geração de certificados oficiais em PDF, incluindo o envio automático por e-mail.
 
 ## 📜 Backlog Sprint 2
 
 | Item | Status | 
 | :----: | :----: | 
-Validação no CAR | ⏳  
-Definir endereço via arrasto no mapa | ⏳  
-Definir endereço via GPS | ⏳  
+Validação no CAR | ⏳
+Definir endereço via arrasto no mapa | ⏳
+Definir endereço via GPS | ⏳
 Salvar coordenadas da propriedade | ⏳  
+Implementar dados do cliente (área do projeto, área do imóvel e rotas) | ⏳  
 Gerar certificado em PDF | ⏳  
 Enviar certificado por e-mail | ⏳  
 
@@ -31,6 +32,9 @@ Enviar certificado por e-mail | ⏳
 | 11.2 | Gerar certificado PDF | Dado que o certificado é gerado, então ele deve conter Nome do usuário, E-mail, Nome da propriedade e Endereço/Coordenadas. |
 | 12.1 | Enviar certificado por e-mail | Dado que um certificado é gerado, quando o envio automático é realizado, então o usuário deve recebê-lo no e-mail cadastrado. |
 | 12.2 | Enviar certificado por e-mail | Dado que ocorre falha no envio, quando o usuário é notificado, então ele deve poder solicitar reenvio. |
+| 13.1 | Implementar dados do cliente | Dado que o cliente fornece informações de área e rotas, quando importadas, então devem ser exibidas corretamente na interface. |
+| 13.2 | Implementar dados do cliente | Dado que os dados são atualizados, quando salvos, então devem ser persistidos e integrados às demais funcionalidades do sistema. |
+| 13.3 | Implementar dados do cliente | Dado que as rotas são geradas, quando exibidas no mapa, então devem representar visualmente os caminhos definidos pelo cliente. |
 
 ## 💻 Tecnologias Utilizadas na Segunda Sprint
 
@@ -42,7 +46,6 @@ Enviar certificado por e-mail | ⏳
 | VSCode | IDE de desenvolvimento |
 | TypeScript | Tipagem e estruturação de código |
 | CSS3 / Styled Components | Estilização do app |
-| Jira | Gestão ágil da Sprint |
 | Firebase | Notificações push e autenticação |
 | ReportLab / PDFKit | Geração de certificados em PDF |
 
@@ -53,5 +56,6 @@ Enviar certificado por e-mail | ⏳
 - Integração com o CAR para validação das propriedades.  
 - Funcionalidade de atualização de endereços via GPS ou arrasto no mapa.  
 - Persistência de coordenadas no banco de dados.  
+- Implementação da integração dos dados fornecidos pelo cliente (área do projeto, área do imóvel e rotas).  
 - Geração de certificados em PDF com dados da propriedade.  
 - Envio automático do certificado por e-mail com opção de reenvio em caso de falha.  
