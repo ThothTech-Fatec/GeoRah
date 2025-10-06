@@ -9,20 +9,20 @@ import { Link } from "expo-router"; // 1. Importe o Link para o cadastro
 const API_URL = "http://10.0.2.2:3000";
 
 export default function LoginScreen() {
-  const [cpf, setCpf] = useState("");
+  const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
 
   // 2. CORRIGIDO: Lógica de login real com a API
   const handleLogin = async () => {
-    if (cpf === "" || senha === "") {
+    if (email === "" || senha === "") {
       Alert.alert("Erro", "Preencha todos os campos!");
       return;
     }
     setIsLoading(true);
     try {
-      const response = await axios.post(`${API_URL}/login`, { cpf, senha });
+      const response = await axios.post(`${API_URL}/login`, { email, senha });
       await login(response.data.token); // Usa o token real retornado pela API
     } catch (error) {
       // eslint-disable-next-line import/no-named-as-default-member
@@ -53,10 +53,11 @@ export default function LoginScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="Digite seu CPF"
-        value={cpf}
-        onChangeText={setCpf}
-        keyboardType="numeric"
+        placeholder="Digite seu Email"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
       />
 
       <TextInput
