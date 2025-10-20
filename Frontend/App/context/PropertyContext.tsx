@@ -2,10 +2,12 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
+import { LatLng } from 'react-native-maps';
 
 const API_URL = "http://10.0.2.2:3000";
 
 export type Property = {
+  boundary?: LatLng[];
   id: number;
   nome_propriedade: string;
   car_code: string;
