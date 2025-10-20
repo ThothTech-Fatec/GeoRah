@@ -97,7 +97,7 @@ app.post('/register', (req: Request, res: Response) => {
 app.get('/properties', protect, (req: any, res: Response) => {
   const userId = req.user.id; // Pegamos o ID do usuário do token
 
-  const query = 'SELECT id, car_code, nome_propriedade, latitude, longitude, plus_code FROM properties WHERE user_id = ?';
+  const query = 'SELECT id, car_code, nome_propriedade, latitude, longitude, plus_code, boundary FROM properties WHERE user_id = ?';
   db.query(query, [userId], (err, results) => {
     if (err) {
       return res.status(500).json({ message: 'Erro ao buscar propriedades.' });
@@ -125,7 +125,8 @@ app.post('/properties', protect, (req: any, res: Response) => {
     nome_propriedade, 
     latitude, 
     longitude, 
-    plus_code 
+    plus_code,
+    boundary
   } = req.body;
   
   const userId = req.user.id; // Pegamos o ID do usuário do token verificado
@@ -137,12 +138,12 @@ app.post('/properties', protect, (req: any, res: Response) => {
   // 2. Query SQL atualizada para incluir os novos campos
   const query = `
     INSERT INTO properties 
-    (user_id, car_code, nome_propriedade, latitude, longitude, plus_code, possui_endereco) 
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (user_id, car_code, nome_propriedade, latitude, longitude, plus_code, boundary, possui_endereco) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   // 3. O valor 'TRUE' indica que a propriedade agora tem uma localização definida
-  const values = [userId, car_code, nome_propriedade, latitude, longitude, plus_code, true];
+  const values = [userId, car_code, nome_propriedade, latitude, longitude, plus_code, boundary ? JSON.stringify(boundary) : null, true];
 
   db.query(query, values, (err, results) => {
     if (err) {
@@ -152,7 +153,7 @@ app.post('/properties', protect, (req: any, res: Response) => {
       console.error("Erro no banco:", err); // Log para depuração
       return res.status(500).json({ message: 'Erro ao adicionar propriedade.' });
     }
-    res.status(201).json({ message: 'Propriedade adicionada com sucesso!' });
+    res.status(201).json({ message: 'Propriedade adicionada com sucesso!', insertId: (results as any).insertId });
   });
 });
 
@@ -188,6 +189,7 @@ app.get('/properties/public', (req: Request, res: Response) => {
       p.latitude, 
       p.longitude, 
       p.plus_code,
+      p.boundary,
       u.nome_completo AS owner_name 
     FROM 
       properties p

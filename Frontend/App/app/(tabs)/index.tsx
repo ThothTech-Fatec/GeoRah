@@ -1,7 +1,7 @@
 // app/(tabs)/index.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Callout } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Polygon } from 'react-native-maps';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
 import { useProperties, Property } from '../../context/PropertyContext';
@@ -26,6 +26,8 @@ export default function MapScreen() {
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [nomePropriedade, setNomePropriedade] = useState("");
   const [codigoCar, setCodigoCar] = useState("");
+  const [isDrawing, setIsDrawing] = useState(false); // Controla se estamos no modo de desenho
+  const [polygonPoints, setPolygonPoints] = useState<LatLng[]>([]); // Armazena os pontos do polígono
 
   const initialRegion = {
     latitude: -21.888341,
@@ -94,6 +96,13 @@ export default function MapScreen() {
   };
 
   const handleMapPress = (event: MapPressEvent) => {
+
+    if (isDrawing) {
+      const newPoint = event.nativeEvent.coordinate;
+      setPolygonPoints([...polygonPoints, newPoint]);
+      return;
+    }
+
     if (isGuest) {
       Alert.alert(
         "Funcionalidade restrita",
@@ -123,6 +132,7 @@ export default function MapScreen() {
       latitude: clickedLocation.latitude,
       longitude: clickedLocation.longitude,
       plus_code: plusCode,
+      boundary: polygonPoints
     };
     setIsLoading(true);
     try {
@@ -131,11 +141,13 @@ export default function MapScreen() {
       });
       addProperty(response.data); // Notifica o contexto sobre a nova propriedade
       Alert.alert("Sucesso!", "Propriedade registrada com sucesso.");
+
       setIsModalVisible(false);
       setClickedLocation(null);
       setNomePropriedade("");
       setCodigoCar("");
       setPlusCode(null);
+      setPolygonPoints([]); // Limpa os pontos do polígono desenhado
     } catch (error) {
       // eslint-disable-next-line import/no-named-as-default-member
       if (axios.isAxiosError(error) && error.response) {
@@ -148,7 +160,7 @@ export default function MapScreen() {
     }
   };
 
-  return (
+return (
     <View style={styles.container}>
       <MapView
         ref={mapViewRef}
@@ -157,11 +169,25 @@ export default function MapScreen() {
         initialRegion={initialRegion}
         onPress={handleMapPress}
       >
+        {/* Marcador azul para nova propriedade (arrastável) */}
         {clickedLocation && (
-          <Marker coordinate={clickedLocation} title="Local Escolhido" pinColor="blue" />
+          <Marker
+            coordinate={clickedLocation}
+            title="Local Escolhido"
+            description="Arraste para ajustar a posição"
+            pinColor="blue"
+            draggable
+            onDragEnd={(e) => {
+              const newCoords = e.nativeEvent.coordinate;
+              setShowConfirmation(true);
+              setClickedLocation(newCoords);
+            }}
+          />
         )}
 
+        {/* Marcadores verdes das propriedades já salvas */}
         {mapProperties.map((prop) => (
+          <React.Fragment key={prop.id}>
           <Marker
             key={prop.id}
             coordinate={{
@@ -171,14 +197,54 @@ export default function MapScreen() {
             title={prop.nome_propriedade}
             description={
               isGuest && prop.owner_name
-                ? `Proprietário: ${prop.owner_name} Plus Code: ${prop.plus_code}`
+                ? `Proprietário: ${prop.owner_name}`
                 : `Plus Code: ${prop.plus_code}`
             }
             pinColor="green"
           />
+          {prop.boundary && prop.boundary.length > 0 && (
+              <Polygon
+                coordinates={prop.boundary}
+                strokeColor="rgba(0, 128, 0, 0.8)"  // Cor da borda (verde escuro)
+                fillColor="rgba(0, 128, 0, 0.3)"    // Cor do preenchimento (verde transparente)
+                strokeWidth={2}
+              />
+              )}
+          </React.Fragment>
         ))}
+        
+        {/* Desenha o polígono enquanto o utilizador clica */}
+        {polygonPoints.length > 0 && (
+          <Polygon
+            coordinates={polygonPoints}
+            strokeColor="rgba(255, 0, 0, 0.7)"
+            fillColor="rgba(255, 0, 0, 0.2)"
+            strokeWidth={2}
+          />
+        )}
       </MapView>
 
+      {/* --- Elementos da UI que flutuam sobre o mapa --- */}
+
+      {/* Controles que aparecem durante o modo de desenho */}
+      {isDrawing && (
+        <View style={styles.drawingControls}>
+          <Pressable style={[styles.button, styles.cancelButton]} onPress={() => {
+            setIsDrawing(false);
+            setPolygonPoints([]); // Limpa os pontos
+          }}>
+            <Text style={styles.buttonText}>Cancelar Desenho</Text>
+          </Pressable>
+          <Pressable style={[styles.button, styles.saveButton]} onPress={() => {
+            setIsDrawing(false); // Sai do modo de desenho
+            setIsModalVisible(true); // REABRE O MODAL de registo
+          }}>
+            <Text style={styles.buttonText}>Concluir Desenho</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Modal para registar os dados da propriedade */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -187,10 +253,20 @@ export default function MapScreen() {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Registrar Propriedade</Text>
+            <Text style={styles.modalTitle}>Registar Propriedade</Text>
             <Text style={styles.plusCodeText}>Plus Code: {plusCode}</Text>
             <TextInput style={styles.input} placeholder="Nome da Propriedade" value={nomePropriedade} onChangeText={setNomePropriedade} />
             <TextInput style={styles.input} placeholder="Código CAR" value={codigoCar} onChangeText={setCodigoCar} />
+
+            {/* Botão para iniciar o modo de desenho */}
+            <Pressable style={[styles.button, { backgroundColor: '#17a2b8', width: '100%', marginBottom: 20 }]} onPress={() => {
+              setIsModalVisible(false); // Fecha o modal
+              setIsDrawing(true); // Ativa o modo de desenho
+            }}>
+              <Text style={styles.buttonText}>Delimitar Área no Mapa</Text>
+            </Pressable>
+
+            {/* Botões de Salvar e Cancelar */}
             <View style={styles.buttonContainer}>
               <Pressable style={[styles.button, styles.cancelButton]} onPress={() => setIsModalVisible(false)}>
                 <Text style={styles.buttonText}>Cancelar</Text>
@@ -203,9 +279,10 @@ export default function MapScreen() {
         </View>
       </Modal>
 
+      {/* Painel de confirmação que aparece após clicar no mapa */}
       {showConfirmation && clickedLocation && (
         <View style={styles.confirmationContainer}>
-          <Text style={styles.confirmationText}>Registrar propriedade neste local?</Text>
+          <Text style={styles.confirmationText}>Registar propriedade neste local?</Text>
           <View style={styles.confirmationButtonContainer}>
             <Pressable style={[styles.confirmationButton, styles.cancelButton]} onPress={() => { setShowConfirmation(false); setClickedLocation(null); }}>
               <Text style={styles.buttonText}>Não</Text>
@@ -250,4 +327,14 @@ const styles = StyleSheet.create({
   confirmationButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', marginHorizontal: 10 },
   calloutTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 5 },
   calloutText: { fontSize: 14, color: '#333' },
+  drawingControls: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    zIndex: 2,
+  },
+
 });
