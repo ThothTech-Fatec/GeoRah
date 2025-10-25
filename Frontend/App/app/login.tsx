@@ -3,10 +3,10 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, Image, ActivityIndicator, Alert, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "../context/AuthContext";
-import axios from 'axios';
-import { Link } from "expo-router"; // 1. Importe o Link para o cadastro
+import axios from "axios";
+import { Link } from "expo-router";
 
-const API_URL = "http://10.0.2.2:3000";
+const API_URL = "http://10.0.2.2:3000"; // backend local (Android emulador)
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -14,18 +14,22 @@ export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
 
-  // 2. CORRIGIDO: Lógica de login real com a API
+  // Função de login principal
   const handleLogin = async () => {
     if (email === "" || senha === "") {
       Alert.alert("Erro", "Preencha todos os campos!");
       return;
     }
+
     setIsLoading(true);
+
     try {
+      // 🔹 Faz login no backend
       const response = await axios.post(`${API_URL}/login`, { email, senha });
-      await login(response.data.token); // Usa o token real retornado pela API
+      await login(response.data.token); // Salva o token de autenticação
+
+      Alert.alert("Sucesso", "Login realizado com sucesso!");
     } catch (error) {
-      // eslint-disable-next-line import/no-named-as-default-member
       if (axios.isAxiosError(error) && error.response) {
         Alert.alert("Erro no Login", error.response.data.message || "Ocorreu um erro.");
       } else {
@@ -36,16 +40,16 @@ export default function LoginScreen() {
     }
   };
 
-  // 3. Lógica para o login de convidado
+  // Login de convidado
   const handleGuestLogin = async () => {
-    await login("guest-token"); // Usa um token especial para identificar o convidado
+    await login("guest-token");
   };
 
   return (
     <LinearGradient colors={["#00C6FB", "#005BEA"]} style={styles.container}>
       <Image
         style={styles.logo}
-        source={require('../assets/images/login.png')} // Exemplo de como adicionar o logo
+        source={require("../assets/images/login.png")}
       />
 
       <Text style={styles.appTitle}>GeoRah</Text>
@@ -69,14 +73,20 @@ export default function LoginScreen() {
       />
 
       <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={isLoading}>
-        {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Entrar</Text>}
+        {isLoading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>Entrar</Text>
+        )}
       </TouchableOpacity>
-      
-      <TouchableOpacity style={[styles.button, { backgroundColor: "#4CAF50", marginTop: 10 }]} onPress={handleGuestLogin}>
+
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: "#4CAF50", marginTop: 10 }]}
+        onPress={handleGuestLogin}
+      >
         <Text style={styles.buttonText}>Entrar como Convidado</Text>
       </TouchableOpacity>
 
-      {/* 4. BOTÃO DE CADASTRO ADICIONADO */}
       <Link href="/register" asChild>
         <TouchableOpacity style={{ marginTop: 20 }}>
           <Text style={styles.linkText}>
@@ -88,7 +98,7 @@ export default function LoginScreen() {
   );
 }
 
-// Estilos (adicionados alguns para o novo design)
+// Estilos
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -134,7 +144,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   linkText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-  }
+  },
 });
