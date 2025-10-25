@@ -1,0 +1,14 @@
+Bom, você deve ter ficado curioso do por que o título está em inglês, e é pq chamou sua atenção
+
+PRIMEIRAMENTE
+
+- Simplesmente execute o primeiro script, logo depois disso estará criado a  base do banco
+- Agora Clique em "SchemaS" no navigator, que fica no canto esquerdo do MYSQL
+- Agora clique no georah_db, vá em tables, clique com o direito no "staging_properties"
+- Clique em "Table Data Import Wizard"
+- Escolha o arquivo "BD_AREA_IMOVEL"
+- Use a tabela existente mesmo
+- ! CUIDADO ! na hora de configurar as colunas, confiram se todas estão batendo, se não estiverem basta selecionar as que batem ( tipo aquele joguinho de interligar as coisas que se relacionam)
+- Aperte em Next e execute.
+
+PRONTO, SE DEU TUDO CERTO APENAS EXECUTE O SEGUNDO SCRIPT.
