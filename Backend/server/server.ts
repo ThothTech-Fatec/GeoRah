@@ -308,9 +308,12 @@ app.delete('/properties/:id', protect, (req: any, res: Response) => {
 });
 
 // PROPRIEDADES PÚBLICAS
-app.get('/properties/public', (req: Request, res: Response) => {
+app.get('/properties/public/markers', (req: Request, res: Response) => {
   const query = `
-    SELECT p.*, u.nome_completo AS owner_name 
+    SELECT 
+      p.id, p.user_id, p.car_code, p.nome_propriedade, 
+      p.latitude, p.longitude, p.plus_code, 
+      u.nome_completo AS owner_name 
     FROM properties p 
     JOIN users u ON p.user_id = u.id
   `;
@@ -323,6 +326,48 @@ app.get('/properties/public', (req: Request, res: Response) => {
       longitude: typeof p.longitude === 'string' ? parseFloat(p.longitude) : p.longitude
     })) : [];
     return res.status(200).json(formatted);
+  });
+});
+
+app.get('/properties/public/boundaries', (req: Request, res: Response) => {
+  const { minLat, maxLat, minLng, maxLng, latitudeDelta } = req.query;
+
+  // 1. Validação
+  if (!minLat || !maxLat || !minLng || !maxLng || !latitudeDelta) {
+    return res.status(400).json({ message: 'Parâmetros de viewport (minLat, maxLat, minLng, maxLng, latitudeDelta) são obrigatórios.' });
+  }
+
+  // 2. Só retorna dados se o zoom estiver próximo (use a mesma constante do frontend)
+  const POLYGON_ZOOM_THRESHOLD = 0.05; //
+  const includeBoundary = parseFloat(latitudeDelta as string) < POLYGON_ZOOM_THRESHOLD;
+
+  if (!includeBoundary) {
+    return res.status(200).json([]); // Zoom muito longe, não retorna polígonos
+  }
+
+  // 3. Constrói a query (APENAS ID e BOUNDARY)
+  const query = `
+    SELECT p.id, p.boundary
+    FROM properties p 
+    WHERE 
+      p.latitude BETWEEN ? AND ? AND
+      p.longitude BETWEEN ? AND ?
+      AND p.boundary IS NOT NULL 
+  `;
+
+  const values = [
+    parseFloat(minLat as string), 
+    parseFloat(maxLat as string), 
+    parseFloat(minLng as string), 
+    parseFloat(maxLng as string)
+  ];
+
+  db.query(query, values, (err, results) => {
+    if (err) {
+      console.error("Erro na query de polígonos:", err);
+      return res.status(500).json({ message: 'Erro ao buscar polígonos.' });
+    }
+    return res.status(200).json(results);
   });
 });
 

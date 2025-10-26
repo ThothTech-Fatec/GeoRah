@@ -1,5 +1,6 @@
 // app/(tabs)/index.tsx
-import React, { useState, useEffect, useRef } from 'react';
+// app/(tabs)/index.tsx (linha 2)s as sss
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert } from 'react-native';
 // Usando MapView normal + componentes
 import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Polygon, Callout, Region } from 'react-native-maps';
@@ -74,7 +75,14 @@ const parseBoundaryToLatLng = (boundary: any, car_code: string): LatLng[] => {
   }
   return parsedBoundary;
 };
-
+const processBasicData = (properties: Property[]): Property[] => {
+  if (!properties || properties.length === 0) return [];
+  return properties.map(prop => ({
+    ...prop,
+    latitude: Number(prop.latitude) || 0,
+    longitude: Number(prop.longitude) || 0,
+  }));
+};
 
 export default function MapScreen() {
   console.log("--- MapScreen RENDERED ---");
@@ -82,7 +90,8 @@ export default function MapScreen() {
   // --- Estados ---
   const { authToken, isGuest } = useAuth();
   const { properties: userProperties, addProperty, fetchProperties } = useProperties();
-  const { locationToFocus } = useMap();
+// app/(tabs)/index.tsx
+  const { locationToFocus, clearLocationToFocus } = useMap();
   const mapViewRef = useRef<MapView>(null);
   const isFocused = useIsFocused();
   // mapProperties guarda dados BRUTOS (boundary é string JSON ou GeoJSON object)
@@ -91,7 +100,18 @@ export default function MapScreen() {
   const [publicPropertiesCache, setPublicPropertiesCache] = useState<Property[]>([]);
   // Estado do filtro
   const [filterMode, setFilterMode] = useState<'all' | 'mine'>('all');
+  // index.tsx
+  // ... (abaixo de currentRegion)
+
+  // CACHE DE POLÍGONOS: Armazena apenas os polígonos baixados. Formato: { "prop_id": "boundary_data" }
+  const [visibleBoundaries, setVisibleBoundaries] = useState<{[key: string]: any}>({});
   
+  // ESTADOS DE CARREGAMENTO (isLoading já existe)
+  const [isFetchingData, setIsFetchingData] = useState(false); // Para carregar polígonos
+  
+  // ESTADOS DE CONTROLE (Refs) - Para evitar loops
+  const isFetchingBoundariesRef = useRef(false);
+  const initialMarkerFetchDone = useRef(false);
   const [plusCode, setPlusCode] = useState<string | null>(null);
   const [selectedMarkerPlusCode, setSelectedMarkerPlusCode] = useState<string | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<number | string | null>(null);
@@ -108,7 +128,9 @@ export default function MapScreen() {
   
   const initialRegion: Region = { latitude: -21.888341, longitude: -51.499488, latitudeDelta: 0.8822, longitudeDelta: 0.5821 };
   const [currentRegion, setCurrentRegion] = useState<Region | null>(initialRegion);
-
+  const processedUserProperties = useMemo(() => {
+    return processBasicData(userProperties);
+  }, [userProperties]); // Só recalcula se 'userProperties' mudar
   // --- Efeitos ---
 
   // Busca GPS inicial
@@ -134,60 +156,141 @@ export default function MapScreen() {
   }, []);
 
   // Busca/Processa propriedades (SÓ dados básicos, SEM processar boundary)
-  useEffect(() => {
-    console.log("--- useEffect DATA Processing (Basic) ---");
-    console.log({ isFocused, isGuest, userPropertiesLength: userProperties?.length, filterMode });
+ // index.tsx
 
-    // Função SÍNCRONA: Apenas garante lat/lng numérico e preserva owner_name
-    const processBasicData = (properties: Property[]): Property[] => {
-      if (!properties || properties.length === 0) return [];
-      return properties.map(prop => ({
-        ...prop, // Mantém owner_name e boundary (bruto)
-        latitude: Number(prop.latitude) || 0,
-        longitude: Number(prop.longitude) || 0,
-      }));
-    };
+  // --- NOVAS FUNÇÕES DE FETCH OTIMIZADAS ---
 
-    // Busca propriedades públicas (só se a cache estiver vazia)
-    const fetchAllPublicProperties = async () => {
-      if (publicPropertiesCache.length > 0) {
-        console.log("Using cached public properties");
-        setMapProperties(publicPropertiesCache); // Usa a cache
-        return;
+  // 1. Busca todos os MARCADORES públicos (leve) - SÓ UMA VEZ
+  const fetchAllPublicMarkers = useCallback(async () => {
+    // Usa o Ref para garantir que só seja chamado uma vez
+    if (initialMarkerFetchDone.current) return;
+    initialMarkerFetchDone.current = true;
+
+    console.log("Buscando TODOS os marcadores públicos (leve)...");
+    setIsLoading(true);
+    try {
+      // Chama a nova ROTA 1
+      const response = await axios.get(`${API_URL}/properties/public/markers`);
+      if (response.data && Array.isArray(response.data)) {
+         setPublicPropertiesCache(response.data); // Salva no cache
       }
-      
-      console.log("Fetching public properties..."); setIsLoading(true);
-      try {
-        const response = await axios.get(`${API_URL}/properties/public`);
-        console.log("API Response Received:", response.data?.length ?? 0, "properties");
-        if (response.data && Array.isArray(response.data)) {
-           const processedData = processBasicData(response.data);
-           setPublicPropertiesCache(processedData as any); // Salva na cache
-           setMapProperties(processedData as any); // Define para exibição
-        } else { setPublicPropertiesCache([]); setMapProperties([]); }
-      } catch (error) {
-        console.error("Erro ao buscar propriedades públicas:", error); setMapProperties([]);
-      } finally { setIsLoading(false); }
+    } catch (error) {
+      console.error("Erro ao buscar marcadores públicos:", error);
+      Alert.alert("Erro", "Não foi possível carregar os marcadores públicos.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []); // Array de dependências VAZIO garante que a função é estável
+
+  // 2. Busca os POLÍGONOS para a viewport (sob demanda)
+  const fetchViewportBoundaries = useCallback(async (region: Region | null) => {
+    // Proteção contra chamadas múltiplas ou desnecessárias
+    if (!region || isFetchingBoundariesRef.current || filterMode === 'mine') {
+      return;
+    }
+    
+    // Se o zoom estiver longe, limpa os polígonos e sai
+    if (region.latitudeDelta > POLYGON_VISIBILITY_ZOOM_THRESHOLD) {
+      setVisibleBoundaries({});
+      return;
+    }
+
+    console.log(`Buscando POLÍGONOS para o viewport (Zoom: ${region.latitudeDelta})`);
+    isFetchingBoundariesRef.current = true;
+    setIsFetchingData(true); // Mostra o loading "Carregando..."
+
+    const params = {
+      minLat: region.latitude - (region.latitudeDelta / 2),
+      maxLat: region.latitude + (region.latitudeDelta / 2),
+      minLng: region.longitude - (region.longitudeDelta / 2),
+      maxLng: region.longitude + (region.longitudeDelta / 2),
+      latitudeDelta: region.latitudeDelta
     };
+
+    try {
+      // Chama a nova ROTA 2
+      const response = await axios.get(`${API_URL}/properties/public/boundaries`, { params });
+      
+      if (response.data && Array.isArray(response.data)) {
+         // Transforma o array [ {id: 1, boundary: ...}, ... ]
+         // Em um objeto { "1": boundary_data, ... } para lookup rápido
+         const boundariesMap = response.data.reduce((acc, prop) => {
+           acc[prop.id] = prop.boundary;
+           return acc;
+         }, {});
+         setVisibleBoundaries(boundariesMap);
+      } else {
+         setVisibleBoundaries({});
+      }
+    } catch (error) {
+      console.error("Erro ao buscar polígonos do viewport:", error);
+      setVisibleBoundaries({});
+    } finally {
+      isFetchingBoundariesRef.current = false;
+      setIsFetchingData(false);
+    }
+  }, [filterMode]); // Só depende do filterMode
+
+
+  // (ATUALIZADO) useEffect principal de dados
+useEffect(() => {
+    console.log("--- useEffect DATA Processing (Hybrid) ---");
+
+    if (locationToFocus && isFocused) {
+        console.log("Foco detectado, carregando propriedades do usuário.");
+        setFilterMode('mine'); 
+        // ATUALIZADO: Usa a variável memoizada
+        if (mapProperties !== processedUserProperties) { 
+          setMapProperties(processedUserProperties as any);
+        }
+        return;
+    }
 
     if (isFocused) {
       if (isGuest) {
-        setFilterMode('all'); // Força 'all' para convidados
-        fetchAllPublicProperties();
+        setFilterMode('all');
+        fetchAllPublicMarkers();
       } else {
-        // Usuário Logado
         if (filterMode === 'all') {
-          fetchAllPublicProperties(); // Busca/usa cache de todas
+          if (publicPropertiesCache.length === 0) {
+            fetchAllPublicMarkers();
+          } else {
+            if (mapProperties !== publicPropertiesCache) {
+              setMapProperties(publicPropertiesCache);
+            }
+          }
+          fetchViewportBoundaries(currentRegion);
         } else { // filterMode === 'mine'
-          const processedUserData = processBasicData(userProperties); // Processa só as do contexto
-          setMapProperties(processedUserData as any);
+          // ATUALIZADO: Usa a variável memoizada
+          if (mapProperties !== processedUserProperties) { 
+            setMapProperties(processedUserProperties as any);
+          }
+          setVisibleBoundaries({});
         }
       }
     }
-  }, [isGuest, userProperties, isFocused, filterMode]); // Re-roda se o filtro mudar
+  }, [
+    isGuest, isFocused, filterMode, 
+    locationToFocus, currentRegion, fetchAllPublicMarkers, 
+    fetchViewportBoundaries, publicPropertiesCache, mapProperties,
+    processedUserProperties // ATUALIZADO: Adiciona a nova dependência
+  ]);
 
   // Foca mapa
-  useEffect(() => { /* ... (código igual anterior) ... */ }, [locationToFocus, isFocused]);
+  // app/(tabs)/index.tsx
+  // Foca mapa
+  useEffect(() => {
+    if (isFocused && locationToFocus && mapViewRef.current) {
+      console.log("Focando no local:", locationToFocus);
+      mapViewRef.current.animateToRegion({
+        ...locationToFocus,
+        latitudeDelta: 0.01, // Zoom bem próximo
+        longitudeDelta: 0.01,
+      }, 1000);
+      
+      clearLocationToFocus(); // <-- ADICIONE ISTO PARA EVITAR O LOOP
+    }
+  }, [locationToFocus, isFocused, clearLocationToFocus]); // <-- ADICIONE A DEPENDÊNCIA
 
   // --- Funções Handler ---
   const getPlusCodeFromCoordinates = async (latitude: number, longitude: number): Promise<string | null> => {
@@ -270,7 +373,13 @@ export default function MapScreen() {
         provider={PROVIDER_GOOGLE}
         initialRegion={initialRegion}
         onPress={handleMapPress}
-        onRegionChangeComplete={(region) => setCurrentRegion(region)} // Atualiza região
+        onRegionChangeComplete={(region: Region) => {
+          setCurrentRegion(region); // Atualiza o estado da região
+          // Se estiver no modo 'all', busca os POLÍGONOS da nova região
+          if (filterMode === 'all') {
+            fetchViewportBoundaries(region);
+          }
+        }}
       >
         {/* Marcador azul (nova propriedade) */}
         {clickedLocation && !isDrawing && (
@@ -300,7 +409,14 @@ export default function MapScreen() {
               
               // 3. Processa o boundary SÓ AGORA, se for renderizar
               // Passa o prop.boundary (string JSON ou GeoJSON obj) e o car_code (para logs de erro)
-              const polygonCoords = shouldRenderPolygon ? parseBoundaryToLatLng(prop.boundary, String(prop.car_code)) : [];
+              // index.tsx
+              // Busca o polígono no cache 'visibleBoundaries'
+              const boundaryData = visibleBoundaries[prop.id];
+              
+              // Processa o polígono SOMENTE se ele foi encontrado no cache
+              const polygonCoords = (shouldRenderPolygon && boundaryData) 
+                ? parseBoundaryToLatLng(boundaryData, String(prop.car_code)) 
+                : [];
 
               if (isNaN(coord.latitude) || isNaN(coord.longitude)) return null;
 
@@ -442,8 +558,7 @@ export default function MapScreen() {
         </View>
       )}
 
-      {/* Loading Overlay */}
-      {isLoading && (
+      {(isLoading || isFetchingData) && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#007BFF" />
           <Text>Carregando...</Text>
@@ -510,3 +625,4 @@ const styles = StyleSheet.create({
   //   color: '#FFFFFF',
   // }
 });
+
