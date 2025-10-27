@@ -1,8 +1,6 @@
-// app/(tabs)/index.tsx
-// app/(tabs)/index.tsx (linha 2)s as sss
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert } from 'react-native';
-// Usando MapView normal + componentes
+import { FontAwesome } from '@expo/vector-icons';
 import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Polygon, Callout, Region } from 'react-native-maps';
 import Constants from 'expo-constants';
 import * as Location from 'expo-location';
@@ -92,6 +90,9 @@ export default function MapScreen() {
   const { properties: userProperties, addProperty, fetchProperties } = useProperties();
 // app/(tabs)/index.tsx
   const { locationToFocus, clearLocationToFocus } = useMap();
+  const userPropertyIds = useMemo(() => 
+    new Set(userProperties.map(p => p.id))
+  , [userProperties]);
   const mapViewRef = useRef<MapView>(null);
   const isFocused = useIsFocused();
   // mapProperties guarda dados BRUTOS (boundary é string JSON ou GeoJSON object)
@@ -323,7 +324,50 @@ useEffect(() => {
 };
 
   const handleMapPress = (event: MapPressEvent) => { /* ... (código igual anterior) ... */ };
-  const handleMarkerPress = async (property: Property) => { /* ... (código igual anterior) ... */ };
+  const handleMarkerPress = async (property: Property) => {
+    const propId = property.id ?? property.car_code;
+    setSelectedMarkerId(propId);
+
+    // 1. Se a propriedade NÃO TIVER Plus Code (como as do banco)
+    if (!property.plus_code) {
+      setIsFetchingPlusCode(true);
+      setSelectedMarkerPlusCode('Buscando...');
+      
+      // 2. Busca o Plus Code na API do Google
+      const foundPlusCode = await getPlusCodeFromCoordinates(property.latitude, property.longitude);
+      
+      if (foundPlusCode) {
+        setSelectedMarkerPlusCode(foundPlusCode);
+
+        // --- INÍCIO DA NOVA LÓGICA ---
+
+        // 3. Salva o Plus Code no Banco de Dados (Write-Back)
+        axios.patch(`${API_URL}/properties/public/${property.id}/pluscode`, { plus_code: foundPlusCode })
+          .then(() => console.log(`Plus Code salvo para ${property.id}`))
+          .catch(err => console.warn("Não foi possível salvar o Plus Code no DB:", err));
+
+        // 4. Atualiza o estado local para evitar buscas futuras
+        const updateState = (prevState: Property[]) => prevState.map(p =>
+          p.id === property.id ? { ...p, plus_code: foundPlusCode } : p
+        );
+        setMapProperties(updateState);
+        
+        if (filterMode === 'all') {
+          setPublicPropertiesCache(updateState);
+        }
+        
+        // --- FIM DA NOVA LÓGICA ---
+
+      } else {
+        setSelectedMarkerPlusCode('Não encontrado');
+      }
+      setIsFetchingPlusCode(false);
+    } 
+    // 5. Se a propriedade JÁ TIVER Plus Code, apenas exibe
+    else {
+      setSelectedMarkerPlusCode(property.plus_code);
+    }
+  };
   
   // Salvar Nova Propriedade (Envia GeoJSON)
   const handleSaveProperty = async () => {
@@ -406,15 +450,20 @@ useEffect(() => {
               const isSelected = selectedMarkerId === propId;
               // Condição de zoom para polígonos (mais perto)
               const shouldRenderPolygon = currentRegion.latitudeDelta < POLYGON_VISIBILITY_ZOOM_THRESHOLD;
-              
-              // 3. Processa o boundary SÓ AGORA, se for renderizar
-              // Passa o prop.boundary (string JSON ou GeoJSON obj) e o car_code (para logs de erro)
-              // index.tsx
+              const isOwner = userPropertyIds.has(prop.id);
+              const markerColor = isOwner ? "blue" : "green"; // 'blue' para o dono, 'green' para outros
+              const polygonStrokeColor = isOwner ? "rgba(0, 0, 255, 0.5)" : "rgba(0, 100, 0, 0.5)";
+              const polygonFillColor = isOwner ? "rgba(0, 0, 255, 0.15)" : "rgba(0, 100, 0, 0.15)";
+              // --- FIM DA NOVA LÓGICA DE COR ---
               // Busca o polígono no cache 'visibleBoundaries'
-              const boundaryData = visibleBoundaries[prop.id];
+              let boundaryData = visibleBoundaries[prop.id];
+
+              if (!boundaryData && prop.boundary) {
+                boundaryData = prop.boundary;
+              }
               
               // Processa o polígono SOMENTE se ele foi encontrado no cache
-              const polygonCoords = (shouldRenderPolygon && boundaryData) 
+                const polygonCoords = (shouldRenderPolygon && boundaryData) 
                 ? parseBoundaryToLatLng(boundaryData, String(prop.car_code)) 
                 : [];
 
@@ -425,7 +474,7 @@ useEffect(() => {
                    <Marker
                      identifier={propId.toString()}
                      coordinate={coord}
-                     pinColor="green"
+                     pinColor={markerColor}
                      onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
                      onDeselect={() => { if (isSelected) { setSelectedMarkerId(null); setSelectedMarkerPlusCode(null); } }}
                    >
@@ -445,8 +494,8 @@ useEffect(() => {
                    {shouldRenderPolygon && polygonCoords.length > 0 && (
                      <Polygon
                        coordinates={polygonCoords} // Usa o array recém-parseado
-                       strokeColor="rgba(0, 100, 0, 0.5)"
-                       fillColor="rgba(0, 100, 0, 0.15)"
+                       strokeColor={polygonStrokeColor}
+                       fillColor={polygonFillColor}
                        strokeWidth={1.5}
                        tappable
                        onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
@@ -468,7 +517,8 @@ useEffect(() => {
              mapViewRef.current.animateToRegion({ ...userLocation, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 1000);
            } else { Alert.alert("Localização", "Não foi possível obter sua localização."); }
       }}>
-        <Text style={styles.gpsButtonText}>📍</Text>
+        {/* Substitui o Text por um Ícone */}
+        <FontAwesome name="location-arrow" size={24} color="white" />
       </Pressable>
 
       {/* --- NOVO: Botões de Filtro --- */}
@@ -478,37 +528,18 @@ useEffect(() => {
             style={[styles.filterButton, filterMode === 'all' && styles.filterButtonActive]}
             onPress={() => setFilterMode('all')}
           >
-            <Text style={styles.filterButtonText}>Todas</Text>
+            {/* Cor do texto muda se estiver ativo */}
+            <Text style={[styles.filterButtonText, { color: filterMode === 'all' ? '#FFFFFF' : '#007BFF' }]}>Todas</Text>
           </Pressable>
           <Pressable
             style={[styles.filterButton, filterMode === 'mine' && styles.filterButtonActive]}
             onPress={() => setFilterMode('mine')}
           >
-            <Text style={styles.filterButtonText}>Minhas</Text>
+            {/* Cor do texto muda se estiver ativo */}
+            <Text style={[styles.filterButtonText, { color: filterMode === 'mine' ? '#FFFFFF' : '#007BFF' }]}>Minhas</Text>
           </Pressable>
         </View>
       )}
-
-      {/* Botões de Desenho */}
-      <View style={styles.drawingControls}>
-         {!isDrawing ? (
-           <Pressable style={[styles.button, styles.saveButton]} onPress={startDrawing} disabled={isGuest}>
-             <Text style={styles.buttonText}>Delimitar Área</Text>
-           </Pressable>
-         ) : (
-           <>
-             {polygonPoints.length > 2 && (
-                <Pressable style={[styles.button, styles.saveButton]} onPress={finishDrawing}>
-                  <Text style={styles.buttonText}>Finalizar</Text>
-                </Pressable>
-              )}
-             <Pressable style={[styles.button, styles.cancelButton]} onPress={cancelDrawing}>
-               <Text style={styles.buttonText}>Cancelar</Text>
-             </Pressable>
-           </>
-         )}
-       </View>
-
       {/* Modal */}
       <Modal visible={isModalVisible} transparent animationType="fade" onRequestClose={() => {setIsModalVisible(false); setClickedLocation(null); setPolygonPoints([]);}}>
           <View style={styles.modalContainer}>
@@ -587,38 +618,49 @@ const styles = StyleSheet.create({
   confirmationButtonContainer: { flexDirection: "row" },
   confirmationButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", marginHorizontal: 10 },
   drawingControls: { position: "absolute", top: (Constants.statusBarHeight || 20) + 10, left: 10, right: 10, flexDirection: "row", justifyContent: "space-around", zIndex: 2, backgroundColor: "rgba(255,255,255,0.85)", padding: 8, borderRadius: 8 },
-  gpsButton: { position: 'absolute', bottom: 180, right: 20, width: 55, height: 55, borderRadius: 30, backgroundColor: '#007BFF', justifyContent: 'center', alignItems: 'center', elevation: 5, zIndex: 1 },
-  gpsButtonText: { fontSize: 28, color: 'white' },
+  gpsButton: {
+    position: 'absolute',
+    bottom: 40, // <-- Mais baixo
+    right: 20,
+    width: 55, height: 55, borderRadius: 30, backgroundColor: '#007BFF', justifyContent: 'center', alignItems: 'center', elevation: 5, zIndex: 1
+  },
   loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255, 255, 255, 0.7)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   calloutContainer: { width: 220, padding: 10, backgroundColor: 'white', borderRadius: 6, borderColor: '#777', borderWidth: 0.5, },
   calloutTitle: { fontSize: 14, fontWeight: 'bold', marginBottom: 5, color: '#333'},
   calloutText: { fontSize: 12, marginBottom: 3, color: '#555' },
   // --- NOVOS ESTILOS PARA O FILTRO ---
-  filterContainer: {
+    filterContainer: {
     position: 'absolute',
-    bottom: 110, // Posição acima do botão GPS
-    left: 20,
-    right: 20,
-    height: 50,
+    // top: (Constants.statusBarHeight || 20) + 10, // Posição abaixo da status bar
+    top: 60, // Ou um valor fixo se preferir
+    left: '50%', // Centraliza horizontalmente
+    transform: [{ translateX: -100 }], // Ajusta para o centro exato (metade da largura)
+    width: 200, // Largura fixa para o container
+    height: 40, // Altura um pouco menor
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderRadius: 25,
-    elevation: 5,
+    backgroundColor: 'rgba(255,255,255,0.9)', // Fundo branco semi-transparente
+    borderRadius: 20, // Bordas mais arredondadas
+    elevation: 4, // Sombra (Android)
+    shadowColor: '#000', // Sombra (iOS)
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
     zIndex: 1,
     overflow: 'hidden',
   },
-  filterButton: {
+  filterButton: { // Mantém o flex para dividir espaço
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  filterButtonActive: {
-    backgroundColor: '#007BFF', // Cor de destaque
+  filterButtonActive: { // Mantém a cor de destaque
+    backgroundColor: '#007BFF',
   },
-  filterButtonText: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    color: '#000', // Cor padrão
+  filterButtonText: { // Estilo do texto
+    fontWeight: '600', // Um pouco mais bold
+    fontSize: 14, // Ligeiramente menor
+    // Cor dinâmica: Branca se ativo, azul se inativo
+    // (Ajustaremos isso no componente)
   },
   // Ajuste o texto do botão ativo se desejar (opcional, pode ser feito no componente)
   // filterButtonTextActive: {
