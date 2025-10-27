@@ -216,6 +216,32 @@ app.delete('/properties/:id', protect, (req: any, res: Response) => {
   });
 });
 
+app.get('/profile', protect, (req: any, res: Response) => {
+  const userId = req.user.id; // ID do usuário a partir do token JWT (middleware 'protect')
+
+  db.query('SELECT id, nome_completo, email FROM users WHERE id = ?', [userId], (err, results: any) => {
+    if (err) {
+      console.error("Erro ao buscar perfil:", err);
+      return res.status(500).json({ message: 'Erro ao buscar dados do perfil.' });
+    }
+    if (!results || results.length === 0) {
+      return res.status(404).json({ message: 'Usuário não encontrado.' });
+    }
+
+    const user = results[0];
+
+    // Extrai o CPF do email (assumindo formato cpf@dominio.com)
+    const cpf = user.email.includes('@') ? user.email.split('@')[0] : 'Não disponível';
+
+    // Retorna os dados necessários
+    return res.status(200).json({
+      nome_completo: user.nome_completo,
+      email: user.email,
+      cpf: cpf // Enviamos o CPF extraído
+    });
+  });
+});
+
 app.get('/properties/:id/certificate', protect, (req: any, res: Response) => {
   const propertyId = req.params.id;
   const userId = req.user.id; // ID do usuário autenticado

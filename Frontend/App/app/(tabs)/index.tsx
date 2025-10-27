@@ -471,25 +471,18 @@ useEffect(() => {
 
               return (
                  <React.Fragment key={propId}>
-                   <Marker
-                     identifier={propId.toString()}
-                     coordinate={coord}
-                     pinColor={markerColor}
-                     onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
-                     onDeselect={() => { if (isSelected) { setSelectedMarkerId(null); setSelectedMarkerPlusCode(null); } }}
-                   >
-                     <Callout tooltip={false} onPress={(e) => e.stopPropagation()}>
-                       <View style={styles.calloutContainer}>
-                         <Text style={styles.calloutTitle} numberOfLines={1}>{String(prop.nome_propriedade ?? "Propriedade")}</Text>
-                         {/* CORREÇÃO: owner_name é preservado e renderizado */}
-                         {isGuest && prop.owner_name && ( <Text style={styles.calloutText}>Proprietário: {String(prop.owner_name)}</Text> )}
-                         <Text style={styles.calloutText}>CAR: {String(prop.car_code ?? 'N/A')}</Text>
-                         <Text style={styles.calloutText}>
-                            Plus Code: {isSelected ? (isFetchingPlusCode ? 'Buscando...' : String(selectedMarkerPlusCode ?? 'Clique no pino')) : (String(prop.plus_code || 'Clique no pino'))}
-                         </Text>
-                       </View>
-                     </Callout>
-                   </Marker>
+                <Marker
+                  identifier={propId.toString()} // ID único para o marcador
+                  coordinate={coord}             // Coordenadas do centroide
+                  pinColor={markerColor}         // Cor dinâmica (azul para dono, verde para outros)
+                  title={String(prop.nome_propriedade ?? "Propriedade")} // Título padrão do marcador (pode aparecer em algumas interações)
+                  // Descrição padrão do marcador, mostra o Plus Code se já existir
+                  description={`Plus Code: ${prop.plus_code ?? (isSelected ? selectedMarkerPlusCode ?? '...' : '...')}`} 
+                  onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }} // Chama a função ao clicar no PINO
+                  onDeselect={() => { if (isSelected) { setSelectedMarkerId(null); setSelectedMarkerPlusCode(null); } }} // Limpa seleção
+                  zIndex={isSelected ? 1 : 0} // Coloca o marcador selecionado acima
+                >
+                </Marker>
                    {/* 4. Renderiza o polígono se as condições forem atendidas */}
                    {shouldRenderPolygon && polygonCoords.length > 0 && (
                      <Polygon
@@ -589,7 +582,7 @@ useEffect(() => {
         </View>
       )}
 
-      {(isLoading || isFetchingData) && (
+      {(isLoading) && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#007BFF" />
           <Text>Carregando...</Text>
