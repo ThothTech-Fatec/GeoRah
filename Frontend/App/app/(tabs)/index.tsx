@@ -1,7 +1,6 @@
-// app/(tabs)/index.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert } from 'react-native';
-// Usando MapView normal + componentes
+import { FontAwesome } from '@expo/vector-icons';
 import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Polygon, Callout, Region } from 'react-native-maps';
 import Constants from 'expo-constants';
 import * as Location from 'expo-location';
@@ -74,7 +73,14 @@ const parseBoundaryToLatLng = (boundary: any, car_code: string): LatLng[] => {
   }
   return parsedBoundary;
 };
-
+const processBasicData = (properties: Property[]): Property[] => {
+  if (!properties || properties.length === 0) return [];
+  return properties.map(prop => ({
+    ...prop,
+    latitude: Number(prop.latitude) || 0,
+    longitude: Number(prop.longitude) || 0,
+  }));
+};
 
 export default function MapScreen() {
   console.log("--- MapScreen RENDERED ---");
@@ -82,7 +88,11 @@ export default function MapScreen() {
   // --- Estados ---
   const { authToken, isGuest } = useAuth();
   const { properties: userProperties, addProperty, fetchProperties } = useProperties();
-  const { locationToFocus } = useMap();
+// app/(tabs)/index.tsx
+  const { locationToFocus, clearLocationToFocus } = useMap();
+  const userPropertyIds = useMemo(() => 
+    new Set(userProperties.map(p => p.id))
+  , [userProperties]);
   const mapViewRef = useRef<MapView>(null);
   const isFocused = useIsFocused();
   // mapProperties guarda dados BRUTOS (boundary é string JSON ou GeoJSON object)
@@ -91,7 +101,18 @@ export default function MapScreen() {
   const [publicPropertiesCache, setPublicPropertiesCache] = useState<Property[]>([]);
   // Estado do filtro
   const [filterMode, setFilterMode] = useState<'all' | 'mine'>('all');
+  // index.tsx
+  // ... (abaixo de currentRegion)
+
+  // CACHE DE POLÍGONOS: Armazena apenas os polígonos baixados. Formato: { "prop_id": "boundary_data" }
+  const [visibleBoundaries, setVisibleBoundaries] = useState<{[key: string]: any}>({});
   
+  // ESTADOS DE CARREGAMENTO (isLoading já existe)
+  const [isFetchingData, setIsFetchingData] = useState(false); // Para carregar polígonos
+  
+  // ESTADOS DE CONTROLE (Refs) - Para evitar loops
+  const isFetchingBoundariesRef = useRef(false);
+  const initialMarkerFetchDone = useRef(false);
   const [plusCode, setPlusCode] = useState<string | null>(null);
   const [selectedMarkerPlusCode, setSelectedMarkerPlusCode] = useState<string | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<number | string | null>(null);
@@ -108,7 +129,9 @@ export default function MapScreen() {
   
   const initialRegion: Region = { latitude: -21.888341, longitude: -51.499488, latitudeDelta: 0.8822, longitudeDelta: 0.5821 };
   const [currentRegion, setCurrentRegion] = useState<Region | null>(initialRegion);
-
+  const processedUserProperties = useMemo(() => {
+    return processBasicData(userProperties);
+  }, [userProperties]); // Só recalcula se 'userProperties' mudar
   // --- Efeitos ---
 
   // Busca GPS inicial
@@ -134,60 +157,141 @@ export default function MapScreen() {
   }, []);
 
   // Busca/Processa propriedades (SÓ dados básicos, SEM processar boundary)
-  useEffect(() => {
-    console.log("--- useEffect DATA Processing (Basic) ---");
-    console.log({ isFocused, isGuest, userPropertiesLength: userProperties?.length, filterMode });
+ // index.tsx
 
-    // Função SÍNCRONA: Apenas garante lat/lng numérico e preserva owner_name
-    const processBasicData = (properties: Property[]): Property[] => {
-      if (!properties || properties.length === 0) return [];
-      return properties.map(prop => ({
-        ...prop, // Mantém owner_name e boundary (bruto)
-        latitude: Number(prop.latitude) || 0,
-        longitude: Number(prop.longitude) || 0,
-      }));
-    };
+  // --- NOVAS FUNÇÕES DE FETCH OTIMIZADAS ---
 
-    // Busca propriedades públicas (só se a cache estiver vazia)
-    const fetchAllPublicProperties = async () => {
-      if (publicPropertiesCache.length > 0) {
-        console.log("Using cached public properties");
-        setMapProperties(publicPropertiesCache); // Usa a cache
-        return;
+  // 1. Busca todos os MARCADORES públicos (leve) - SÓ UMA VEZ
+  const fetchAllPublicMarkers = useCallback(async () => {
+    // Usa o Ref para garantir que só seja chamado uma vez
+    if (initialMarkerFetchDone.current) return;
+    initialMarkerFetchDone.current = true;
+
+    console.log("Buscando TODOS os marcadores públicos (leve)...");
+    setIsLoading(true);
+    try {
+      // Chama a nova ROTA 1
+      const response = await axios.get(`${API_URL}/properties/public/markers`);
+      if (response.data && Array.isArray(response.data)) {
+         setPublicPropertiesCache(response.data); // Salva no cache
       }
-      
-      console.log("Fetching public properties..."); setIsLoading(true);
-      try {
-        const response = await axios.get(`${API_URL}/properties/public`);
-        console.log("API Response Received:", response.data?.length ?? 0, "properties");
-        if (response.data && Array.isArray(response.data)) {
-           const processedData = processBasicData(response.data);
-           setPublicPropertiesCache(processedData as any); // Salva na cache
-           setMapProperties(processedData as any); // Define para exibição
-        } else { setPublicPropertiesCache([]); setMapProperties([]); }
-      } catch (error) {
-        console.error("Erro ao buscar propriedades públicas:", error); setMapProperties([]);
-      } finally { setIsLoading(false); }
+    } catch (error) {
+      console.error("Erro ao buscar marcadores públicos:", error);
+      Alert.alert("Erro", "Não foi possível carregar os marcadores públicos.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []); // Array de dependências VAZIO garante que a função é estável
+
+  // 2. Busca os POLÍGONOS para a viewport (sob demanda)
+  const fetchViewportBoundaries = useCallback(async (region: Region | null) => {
+    // Proteção contra chamadas múltiplas ou desnecessárias
+    if (!region || isFetchingBoundariesRef.current || filterMode === 'mine') {
+      return;
+    }
+    
+    // Se o zoom estiver longe, limpa os polígonos e sai
+    if (region.latitudeDelta > POLYGON_VISIBILITY_ZOOM_THRESHOLD) {
+      setVisibleBoundaries({});
+      return;
+    }
+
+    console.log(`Buscando POLÍGONOS para o viewport (Zoom: ${region.latitudeDelta})`);
+    isFetchingBoundariesRef.current = true;
+    setIsFetchingData(true); // Mostra o loading "Carregando..."
+
+    const params = {
+      minLat: region.latitude - (region.latitudeDelta / 2),
+      maxLat: region.latitude + (region.latitudeDelta / 2),
+      minLng: region.longitude - (region.longitudeDelta / 2),
+      maxLng: region.longitude + (region.longitudeDelta / 2),
+      latitudeDelta: region.latitudeDelta
     };
+
+    try {
+      // Chama a nova ROTA 2
+      const response = await axios.get(`${API_URL}/properties/public/boundaries`, { params });
+      
+      if (response.data && Array.isArray(response.data)) {
+         // Transforma o array [ {id: 1, boundary: ...}, ... ]
+         // Em um objeto { "1": boundary_data, ... } para lookup rápido
+         const boundariesMap = response.data.reduce((acc, prop) => {
+           acc[prop.id] = prop.boundary;
+           return acc;
+         }, {});
+         setVisibleBoundaries(boundariesMap);
+      } else {
+         setVisibleBoundaries({});
+      }
+    } catch (error) {
+      console.error("Erro ao buscar polígonos do viewport:", error);
+      setVisibleBoundaries({});
+    } finally {
+      isFetchingBoundariesRef.current = false;
+      setIsFetchingData(false);
+    }
+  }, [filterMode]); // Só depende do filterMode
+
+
+  // (ATUALIZADO) useEffect principal de dados
+useEffect(() => {
+    console.log("--- useEffect DATA Processing (Hybrid) ---");
+
+    if (locationToFocus && isFocused) {
+        console.log("Foco detectado, carregando propriedades do usuário.");
+        setFilterMode('mine'); 
+        // ATUALIZADO: Usa a variável memoizada
+        if (mapProperties !== processedUserProperties) { 
+          setMapProperties(processedUserProperties as any);
+        }
+        return;
+    }
 
     if (isFocused) {
       if (isGuest) {
-        setFilterMode('all'); // Força 'all' para convidados
-        fetchAllPublicProperties();
+        setFilterMode('all');
+        fetchAllPublicMarkers();
       } else {
-        // Usuário Logado
         if (filterMode === 'all') {
-          fetchAllPublicProperties(); // Busca/usa cache de todas
+          if (publicPropertiesCache.length === 0) {
+            fetchAllPublicMarkers();
+          } else {
+            if (mapProperties !== publicPropertiesCache) {
+              setMapProperties(publicPropertiesCache);
+            }
+          }
+          fetchViewportBoundaries(currentRegion);
         } else { // filterMode === 'mine'
-          const processedUserData = processBasicData(userProperties); // Processa só as do contexto
-          setMapProperties(processedUserData as any);
+          // ATUALIZADO: Usa a variável memoizada
+          if (mapProperties !== processedUserProperties) { 
+            setMapProperties(processedUserProperties as any);
+          }
+          setVisibleBoundaries({});
         }
       }
     }
-  }, [isGuest, userProperties, isFocused, filterMode]); // Re-roda se o filtro mudar
+  }, [
+    isGuest, isFocused, filterMode, 
+    locationToFocus, currentRegion, fetchAllPublicMarkers, 
+    fetchViewportBoundaries, publicPropertiesCache, mapProperties,
+    processedUserProperties // ATUALIZADO: Adiciona a nova dependência
+  ]);
 
   // Foca mapa
-  useEffect(() => { /* ... (código igual anterior) ... */ }, [locationToFocus, isFocused]);
+  // app/(tabs)/index.tsx
+  // Foca mapa
+  useEffect(() => {
+    if (isFocused && locationToFocus && mapViewRef.current) {
+      console.log("Focando no local:", locationToFocus);
+      mapViewRef.current.animateToRegion({
+        ...locationToFocus,
+        latitudeDelta: 0.01, // Zoom bem próximo
+        longitudeDelta: 0.01,
+      }, 1000);
+      
+      clearLocationToFocus(); // <-- ADICIONE ISTO PARA EVITAR O LOOP
+    }
+  }, [locationToFocus, isFocused, clearLocationToFocus]); // <-- ADICIONE A DEPENDÊNCIA
 
   // --- Funções Handler ---
   const getPlusCodeFromCoordinates = async (latitude: number, longitude: number): Promise<string | null> => {
@@ -220,7 +324,50 @@ export default function MapScreen() {
 };
 
   const handleMapPress = (event: MapPressEvent) => { /* ... (código igual anterior) ... */ };
-  const handleMarkerPress = async (property: Property) => { /* ... (código igual anterior) ... */ };
+  const handleMarkerPress = async (property: Property) => {
+    const propId = property.id ?? property.car_code;
+    setSelectedMarkerId(propId);
+
+    // 1. Se a propriedade NÃO TIVER Plus Code (como as do banco)
+    if (!property.plus_code) {
+      setIsFetchingPlusCode(true);
+      setSelectedMarkerPlusCode('Buscando...');
+      
+      // 2. Busca o Plus Code na API do Google
+      const foundPlusCode = await getPlusCodeFromCoordinates(property.latitude, property.longitude);
+      
+      if (foundPlusCode) {
+        setSelectedMarkerPlusCode(foundPlusCode);
+
+        // --- INÍCIO DA NOVA LÓGICA ---
+
+        // 3. Salva o Plus Code no Banco de Dados (Write-Back)
+        axios.patch(`${API_URL}/properties/public/${property.id}/pluscode`, { plus_code: foundPlusCode })
+          .then(() => console.log(`Plus Code salvo para ${property.id}`))
+          .catch(err => console.warn("Não foi possível salvar o Plus Code no DB:", err));
+
+        // 4. Atualiza o estado local para evitar buscas futuras
+        const updateState = (prevState: Property[]) => prevState.map(p =>
+          p.id === property.id ? { ...p, plus_code: foundPlusCode } : p
+        );
+        setMapProperties(updateState);
+        
+        if (filterMode === 'all') {
+          setPublicPropertiesCache(updateState);
+        }
+        
+        // --- FIM DA NOVA LÓGICA ---
+
+      } else {
+        setSelectedMarkerPlusCode('Não encontrado');
+      }
+      setIsFetchingPlusCode(false);
+    } 
+    // 5. Se a propriedade JÁ TIVER Plus Code, apenas exibe
+    else {
+      setSelectedMarkerPlusCode(property.plus_code);
+    }
+  };
   
   // Salvar Nova Propriedade (Envia GeoJSON)
   const handleSaveProperty = async () => {
@@ -270,7 +417,13 @@ export default function MapScreen() {
         provider={PROVIDER_GOOGLE}
         initialRegion={initialRegion}
         onPress={handleMapPress}
-        onRegionChangeComplete={(region) => setCurrentRegion(region)} // Atualiza região
+        onRegionChangeComplete={(region: Region) => {
+          setCurrentRegion(region); // Atualiza o estado da região
+          // Se estiver no modo 'all', busca os POLÍGONOS da nova região
+          if (filterMode === 'all') {
+            fetchViewportBoundaries(region);
+          }
+        }}
       >
         {/* Marcador azul (nova propriedade) */}
         {clickedLocation && !isDrawing && (
@@ -297,40 +450,45 @@ export default function MapScreen() {
               const isSelected = selectedMarkerId === propId;
               // Condição de zoom para polígonos (mais perto)
               const shouldRenderPolygon = currentRegion.latitudeDelta < POLYGON_VISIBILITY_ZOOM_THRESHOLD;
+              const isOwner = userPropertyIds.has(prop.id);
+              const markerColor = isOwner ? "blue" : "green"; // 'blue' para o dono, 'green' para outros
+              const polygonStrokeColor = isOwner ? "rgba(0, 0, 255, 0.5)" : "rgba(0, 100, 0, 0.5)";
+              const polygonFillColor = isOwner ? "rgba(0, 0, 255, 0.15)" : "rgba(0, 100, 0, 0.15)";
+              // --- FIM DA NOVA LÓGICA DE COR ---
+              // Busca o polígono no cache 'visibleBoundaries'
+              let boundaryData = visibleBoundaries[prop.id];
+
+              if (!boundaryData && prop.boundary) {
+                boundaryData = prop.boundary;
+              }
               
-              // 3. Processa o boundary SÓ AGORA, se for renderizar
-              // Passa o prop.boundary (string JSON ou GeoJSON obj) e o car_code (para logs de erro)
-              const polygonCoords = shouldRenderPolygon ? parseBoundaryToLatLng(prop.boundary, String(prop.car_code)) : [];
+              // Processa o polígono SOMENTE se ele foi encontrado no cache
+                const polygonCoords = (shouldRenderPolygon && boundaryData) 
+                ? parseBoundaryToLatLng(boundaryData, String(prop.car_code)) 
+                : [];
 
               if (isNaN(coord.latitude) || isNaN(coord.longitude)) return null;
 
               return (
                  <React.Fragment key={propId}>
-                   <Marker
-                     identifier={propId.toString()}
-                     coordinate={coord}
-                     pinColor="green"
-                     onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
-                     onDeselect={() => { if (isSelected) { setSelectedMarkerId(null); setSelectedMarkerPlusCode(null); } }}
-                   >
-                     <Callout tooltip={false} onPress={(e) => e.stopPropagation()}>
-                       <View style={styles.calloutContainer}>
-                         <Text style={styles.calloutTitle} numberOfLines={1}>{String(prop.nome_propriedade ?? "Propriedade")}</Text>
-                         {/* CORREÇÃO: owner_name é preservado e renderizado */}
-                         {isGuest && prop.owner_name && ( <Text style={styles.calloutText}>Proprietário: {String(prop.owner_name)}</Text> )}
-                         <Text style={styles.calloutText}>CAR: {String(prop.car_code ?? 'N/A')}</Text>
-                         <Text style={styles.calloutText}>
-                            Plus Code: {isSelected ? (isFetchingPlusCode ? 'Buscando...' : String(selectedMarkerPlusCode ?? 'Clique no pino')) : (String(prop.plus_code || 'Clique no pino'))}
-                         </Text>
-                       </View>
-                     </Callout>
-                   </Marker>
+                <Marker
+                  identifier={propId.toString()} // ID único para o marcador
+                  coordinate={coord}             // Coordenadas do centroide
+                  pinColor={markerColor}         // Cor dinâmica (azul para dono, verde para outros)
+                  title={String(prop.nome_propriedade ?? "Propriedade")} // Título padrão do marcador (pode aparecer em algumas interações)
+                  // Descrição padrão do marcador, mostra o Plus Code se já existir
+                  description={`Plus Code: ${prop.plus_code ?? (isSelected ? selectedMarkerPlusCode ?? '...' : '...')}`} 
+                  onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }} // Chama a função ao clicar no PINO
+                  onDeselect={() => { if (isSelected) { setSelectedMarkerId(null); setSelectedMarkerPlusCode(null); } }} // Limpa seleção
+                  zIndex={isSelected ? 1 : 0} // Coloca o marcador selecionado acima
+                >
+                </Marker>
                    {/* 4. Renderiza o polígono se as condições forem atendidas */}
                    {shouldRenderPolygon && polygonCoords.length > 0 && (
                      <Polygon
                        coordinates={polygonCoords} // Usa o array recém-parseado
-                       strokeColor="rgba(0, 100, 0, 0.5)"
-                       fillColor="rgba(0, 100, 0, 0.15)"
+                       strokeColor={polygonStrokeColor}
+                       fillColor={polygonFillColor}
                        strokeWidth={1.5}
                        tappable
                        onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
@@ -352,7 +510,8 @@ export default function MapScreen() {
              mapViewRef.current.animateToRegion({ ...userLocation, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 1000);
            } else { Alert.alert("Localização", "Não foi possível obter sua localização."); }
       }}>
-        <Text style={styles.gpsButtonText}>📍</Text>
+        {/* Substitui o Text por um Ícone */}
+        <FontAwesome name="location-arrow" size={24} color="white" />
       </Pressable>
 
       {/* --- NOVO: Botões de Filtro --- */}
@@ -362,37 +521,18 @@ export default function MapScreen() {
             style={[styles.filterButton, filterMode === 'all' && styles.filterButtonActive]}
             onPress={() => setFilterMode('all')}
           >
-            <Text style={styles.filterButtonText}>Todas</Text>
+            {/* Cor do texto muda se estiver ativo */}
+            <Text style={[styles.filterButtonText, { color: filterMode === 'all' ? '#FFFFFF' : '#007BFF' }]}>Todas</Text>
           </Pressable>
           <Pressable
             style={[styles.filterButton, filterMode === 'mine' && styles.filterButtonActive]}
             onPress={() => setFilterMode('mine')}
           >
-            <Text style={styles.filterButtonText}>Minhas</Text>
+            {/* Cor do texto muda se estiver ativo */}
+            <Text style={[styles.filterButtonText, { color: filterMode === 'mine' ? '#FFFFFF' : '#007BFF' }]}>Minhas</Text>
           </Pressable>
         </View>
       )}
-
-      {/* Botões de Desenho */}
-      <View style={styles.drawingControls}>
-         {!isDrawing ? (
-           <Pressable style={[styles.button, styles.saveButton]} onPress={startDrawing} disabled={isGuest}>
-             <Text style={styles.buttonText}>Delimitar Área</Text>
-           </Pressable>
-         ) : (
-           <>
-             {polygonPoints.length > 2 && (
-                <Pressable style={[styles.button, styles.saveButton]} onPress={finishDrawing}>
-                  <Text style={styles.buttonText}>Finalizar</Text>
-                </Pressable>
-              )}
-             <Pressable style={[styles.button, styles.cancelButton]} onPress={cancelDrawing}>
-               <Text style={styles.buttonText}>Cancelar</Text>
-             </Pressable>
-           </>
-         )}
-       </View>
-
       {/* Modal */}
       <Modal visible={isModalVisible} transparent animationType="fade" onRequestClose={() => {setIsModalVisible(false); setClickedLocation(null); setPolygonPoints([]);}}>
           <View style={styles.modalContainer}>
@@ -442,8 +582,7 @@ export default function MapScreen() {
         </View>
       )}
 
-      {/* Loading Overlay */}
-      {isLoading && (
+      {(isLoading) && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#007BFF" />
           <Text>Carregando...</Text>
@@ -472,41 +611,53 @@ const styles = StyleSheet.create({
   confirmationButtonContainer: { flexDirection: "row" },
   confirmationButton: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", marginHorizontal: 10 },
   drawingControls: { position: "absolute", top: (Constants.statusBarHeight || 20) + 10, left: 10, right: 10, flexDirection: "row", justifyContent: "space-around", zIndex: 2, backgroundColor: "rgba(255,255,255,0.85)", padding: 8, borderRadius: 8 },
-  gpsButton: { position: 'absolute', bottom: 180, right: 20, width: 55, height: 55, borderRadius: 30, backgroundColor: '#007BFF', justifyContent: 'center', alignItems: 'center', elevation: 5, zIndex: 1 },
-  gpsButtonText: { fontSize: 28, color: 'white' },
+  gpsButton: {
+    position: 'absolute',
+    bottom: 40, // <-- Mais baixo
+    right: 20,
+    width: 55, height: 55, borderRadius: 30, backgroundColor: '#007BFF', justifyContent: 'center', alignItems: 'center', elevation: 5, zIndex: 1
+  },
   loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255, 255, 255, 0.7)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   calloutContainer: { width: 220, padding: 10, backgroundColor: 'white', borderRadius: 6, borderColor: '#777', borderWidth: 0.5, },
   calloutTitle: { fontSize: 14, fontWeight: 'bold', marginBottom: 5, color: '#333'},
   calloutText: { fontSize: 12, marginBottom: 3, color: '#555' },
   // --- NOVOS ESTILOS PARA O FILTRO ---
-  filterContainer: {
+    filterContainer: {
     position: 'absolute',
-    bottom: 110, // Posição acima do botão GPS
-    left: 20,
-    right: 20,
-    height: 50,
+    // top: (Constants.statusBarHeight || 20) + 10, // Posição abaixo da status bar
+    top: 60, // Ou um valor fixo se preferir
+    left: '50%', // Centraliza horizontalmente
+    transform: [{ translateX: -100 }], // Ajusta para o centro exato (metade da largura)
+    width: 200, // Largura fixa para o container
+    height: 40, // Altura um pouco menor
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderRadius: 25,
-    elevation: 5,
+    backgroundColor: 'rgba(255,255,255,0.9)', // Fundo branco semi-transparente
+    borderRadius: 20, // Bordas mais arredondadas
+    elevation: 4, // Sombra (Android)
+    shadowColor: '#000', // Sombra (iOS)
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
     zIndex: 1,
     overflow: 'hidden',
   },
-  filterButton: {
+  filterButton: { // Mantém o flex para dividir espaço
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  filterButtonActive: {
-    backgroundColor: '#007BFF', // Cor de destaque
+  filterButtonActive: { // Mantém a cor de destaque
+    backgroundColor: '#007BFF',
   },
-  filterButtonText: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    color: '#000', // Cor padrão
+  filterButtonText: { // Estilo do texto
+    fontWeight: '600', // Um pouco mais bold
+    fontSize: 14, // Ligeiramente menor
+    // Cor dinâmica: Branca se ativo, azul se inativo
+    // (Ajustaremos isso no componente)
   },
   // Ajuste o texto do botão ativo se desejar (opcional, pode ser feito no componente)
   // filterButtonTextActive: {
   //   color: '#FFFFFF',
   // }
 });
+

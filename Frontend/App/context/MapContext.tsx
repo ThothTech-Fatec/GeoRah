@@ -6,6 +6,7 @@ import { LatLng } from 'react-native-maps';
 type MapContextType = {
   locationToFocus: LatLng | null;
   focusOnLocation: (location: LatLng) => void;
+  clearLocationToFocus: () => void; // <-- ADICIONE ISTO
 };
 
 const MapContext = createContext<MapContextType | null>(null);
@@ -27,9 +28,14 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
     setLocationToFocus(location);
   };
 
+  const clearLocationToFocus = () => { // <-- ADICIONE ISTO
+    setLocationToFocus(null);
+  };
+
   const value = {
     locationToFocus,
     focusOnLocation,
+    clearLocationToFocus, // <-- ADICIONE ISTO
   };
 
   return <MapContext.Provider value={value}>{children}</MapContext.Provider>;

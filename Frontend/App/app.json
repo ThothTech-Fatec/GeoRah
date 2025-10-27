@@ -20,7 +20,7 @@
       },
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyCGXYxZmfccCFJnQ5wGCrhTjy2A9-S2DvM"
+          "apiKey": "AIzaSyCMK8o9ySTo5NPr1yN3o5F0LWIwdjx1pts"
         }
       },
       "usesCleartextTraffic": true,
@@ -53,7 +53,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "googleApiKey": "AIzaSyCGXYxZmfccCFJnQ5wGCrhTjy2A9-S2DvM"
+      "googleApiKey": "AIzaSyCMK8o9ySTo5NPr1yN3o5F0LWIwdjx1pts"
     }
   }
 }
