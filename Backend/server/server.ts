@@ -546,64 +546,82 @@ app.get('/properties/public/boundaries', (req: Request, res: Response) => {
 
 // Autenticação via EMAIL
 
-const verificationCodes: { [email: string]: string } = {};
+// 1. Estrutura atualizada para incluir o timestamp
+const verificationCodes: { [email: string]: { code: string; timestamp: number } } = {};
 
-// Configuração do Nodemailer (exemplo Gmail)
+// Constante para 10 minutos em milissegundos
+const CODE_EXPIRATION_MS = 10 * 60 * 1000; 
+
+// Configuração do Nodemailer
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,  
-    pass: process.env.EMAIL_PASS,  
-  },
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,  
+    pass: process.env.EMAIL_PASS,  
+  },
 });
 
 app.post('/send-verification', async (req: Request, res: Response) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ message: 'E-mail é obrigatório' });
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: 'E-mail é obrigatório' });
 
-  // Gerar código aleatório de 6 dígitos
-  const code = crypto.randomInt(100000, 999999).toString();
+  // Gerar código aleatório de 6 dígitos
+  const code = crypto.randomInt(100000, 999999).toString();
 
-  // Salvar código temporariamente
-  verificationCodes[email] = code;
+  // 2. Salvar código e timestamp
+  verificationCodes[email] = {
+    code,
+    timestamp: Date.now() 
+  };
 
-  try {
-    await transporter.sendMail({
-      from: `"GeoRah" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'Código de Verificação GeoRah',
-      text: `Seu código de verificação é: ${code}`,
-      html: `<p>Seu código de verificação é: <b>${code}</b></p>`,
-    });
+  try {
+    await transporter.sendMail({
+      from: `"GeoRah" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Código de Verificação GeoRah',
+      text: `Seu código de verificação é: ${code}`,
+      html: `<p>Seu código de verificação é: <b>${code}</b>. Este código expira em 10 minutos.</p>`, // (Adicionei um aviso no e-mail)
+    });
 
-    return res.status(200).json({ message: 'Código enviado com sucesso' });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Erro ao enviar o código' });
-  }
+    return res.status(200).json({ message: 'Código enviado com sucesso' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Erro ao enviar o código' });
+  }
 });
 
 app.post('/verify-code', (req: Request, res: Response) => {
-  const { email, code } = req.body;
-  if (!email || !code) return res.status(400).json({ message: 'Email e código são obrigatórios' });
+  const { email, code } = req.body;
+  if (!email || !code) return res.status(400).json({ message: 'Email e código são obrigatórios' });
 
-  const validCode = verificationCodes[email];
-  if (!validCode) return res.status(400).json({ message: 'Nenhum código encontrado para este e-mail' });
+  const entry = verificationCodes[email];
+  if (!entry) return res.status(400).json({ message: 'Nenhum código solicitado para este e-mail' });
 
-  if (validCode === code) {
-    // Código válido: pode registrar o usuário
-    delete verificationCodes[email]; // remove após verificação
-    return res.status(200).json({ message: 'Código verificado com sucesso' });
+  // 3. Lógica de verificação de expiração
+  const now = Date.now();
+  const codeAge = now - entry.timestamp;
+
+  if (codeAge > CODE_EXPIRATION_MS) {
+    // Código está expirado
+    delete verificationCodes[email]; // Limpa o código antigo
+    return res.status(400).json({ message: 'Código expirado. Por favor, solicite um novo.' });
   }
+  // Fim da lógica de expiração
 
-  return res.status(400).json({ message: 'Código inválido' });
+  if (entry.code === code) {
+    // Código válido: pode registrar o usuário
+    delete verificationCodes[email]; // remove após verificação
+    return res.status(200).json({ message: 'Código verificado com sucesso' });
+  }
+
+  return res.status(400).json({ message: 'Código inválido' });
 });
 
 
 // ERRO GLOBAL
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('Erro inesperado:', err);
-  res.status(500).json({ message: 'Ocorreu um erro inesperado.' });
+  console.error('Erro inesperado:', err);
+  res.status(500).json({ message: 'Ocorreu um erro inesperado.' });
 });
 
 
