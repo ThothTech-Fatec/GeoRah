@@ -1,31 +1,40 @@
 // app/(tabs)/profile.tsx
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Platform, StatusBar } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
-import { useIsFocused } from '@react-navigation/native'; // Importe o useAuth
+import { useIsFocused } from '@react-navigation/native';
 
 const API_URL = "http://10.0.2.2:3000";
 
-// Interface para os dados do perfil
+// Interface do perfil
 interface UserProfile {
   nome_completo: string;
   email: string;
   cpf: string;
 }
 
-export default function ProfileScreen() {
-  const { authToken, logout } = useAuth(); // Pegue o token e a função logout
+// Função para mascarar CPF
+const maskCPF = (cpf: string | null | undefined): string => {
+  if (!cpf || cpf.length < 11 || cpf === '-' || cpf === 'Não informado') {
+    return '***.***.***-**';
+  }
+  const numbers = cpf.replace(/\D/g, '');
+  if (numbers.length !== 11) return 'CPF inválido';
+  return `${numbers.substring(0,3)}.***.***-${numbers.substring(9,11)}`;
+};
+
+export default function ProfileScreen({ navigation }: any) {
+  const { authToken, logout } = useAuth();
   const [profileData, setProfileData] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const isFocused = useIsFocused(); // Hook para saber se a tela está visível
+  const isFocused = useIsFocused();
 
-  // Busca os dados do perfil quando a tela carrega ou volta a ter foco
+  // Busca dados do perfil
   useEffect(() => {
     const fetchProfile = async () => {
       if (!authToken || authToken === 'guest-token') {
-        // Se for convidado, não busca perfil real
         setProfileData({ nome_completo: 'Convidado', email: '-', cpf: '-' });
         setIsLoading(false);
         return;
@@ -39,30 +48,25 @@ export default function ProfileScreen() {
         setProfileData(response.data);
       } catch (error) {
         console.error("Erro ao buscar perfil:", error);
-        Alert.alert('Erro', 'Não foi possível carregar os dados do perfil.');
-        // Define dados padrão em caso de erro para não quebrar a UI
-        setProfileData({ nome_completo: 'Erro ao carregar', email: '-', cpf: '-' });
+        handleLogout();
       } finally {
         setIsLoading(false);
       }
     };
 
-    // Só busca se a tela estiver focada
-    if (isFocused) {
-      fetchProfile();
-    }
-  }, [authToken, isFocused]); // Re-executa se o token mudar ou a tela ganhar foco
+    if (isFocused) fetchProfile();
+  }, [authToken, isFocused]);
 
   const handleLogout = () => {
-    logout();
+    logout(); // limpa token e estado
+    if (navigation) navigation.replace('Login'); // redireciona para login
   };
-  
+
   return (
     <View style={styles.container}>
       <FontAwesome name="user-circle-o" size={80} color="#666" style={styles.avatar} />
       <Text style={styles.title}>Meu Perfil</Text>
 
-      {/* Exibe loading ou os dados do perfil */}
       {isLoading ? (
         <ActivityIndicator size="large" color="#007BFF" style={{ marginTop: 20 }}/>
       ) : profileData ? (
@@ -80,80 +84,57 @@ export default function ProfileScreen() {
           <View style={styles.infoRow}>
             <FontAwesome name="id-card" size={20} color="#555" style={styles.icon} />
             <Text style={styles.label}>CPF:</Text>
-            <Text style={styles.value}>{profileData.cpf}</Text>
+            <Text style={styles.value}>{maskCPF(profileData.cpf)}</Text>
           </View>
         </View>
       ) : (
         <Text style={styles.text}>Não foi possível carregar os dados.</Text>
       )}
 
-      {/* Botão de Logout */}
-      {authToken !== 'guest-token' && ( // Só mostra se não for convidado
-        <Pressable style={styles.logoutButton} onPress={handleLogout} disabled={isLoading}>
-          <FontAwesome name="sign-out" size={20} color="white" />
-          <Text style={styles.logoutButtonText}>Sair</Text>
-        </Pressable>
-      )}
+      {/* Botão de logout sempre visível */}
+      <Pressable style={styles.logoutButton} onPress={handleLogout} disabled={isLoading}>
+        <FontAwesome name="sign-out" size={20} color="white" />
+        <Text style={styles.logoutButtonText}>Sair</Text>
+      </Pressable>
     </View>
   );
 }
 
+// Estilos
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
-    paddingTop: 60, // Mais espaço no topo
+    paddingTop: (Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0) + 40,
     paddingHorizontal: 20,
   },
-  avatar: {
-    marginBottom: 15,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 30, // Mais espaço abaixo do título
-    color: '#333',
-  },
+  avatar: { marginBottom: 15 },
+  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 30, color: '#333' },
   infoContainer: {
     width: '100%',
     backgroundColor: '#fff',
     borderRadius: 10,
     padding: 20,
-    elevation: 3, // Sombra
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1.5,
-    marginBottom: 40, // Espaço antes do botão
+    marginBottom: 40,
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15, // Espaço entre as linhas
-    borderBottomWidth: 1, // Linha separadora sutil
+    marginBottom: 15,
+    borderBottomWidth: 1,
     borderBottomColor: '#eee',
     paddingBottom: 10,
   },
-  icon: {
-    marginRight: 15,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    width: 60, // Largura fixa para alinhar os valores
-  },
-  value: {
-    fontSize: 16,
-    color: '#555',
-    flexShrink: 1, // Permite quebrar linha se for muito longo
-  },
-  text: { // Estilo para mensagens de erro ou estado vazio
-    fontSize: 16,
-    marginTop: 20,
-    color: 'gray',
-  },
+  icon: { marginRight: 15 },
+  label: { fontSize: 16, fontWeight: 'bold', color: '#333', width: 60 },
+  value: { fontSize: 16, color: '#555', flexShrink: 1 },
+  text: { fontSize: 16, marginTop: 20, color: 'gray' },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -162,13 +143,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 30,
     borderRadius: 8,
     elevation: 2,
-    marginTop: 'auto', // Empurra para o final (se houver espaço)
-    marginBottom: 40, // Margem inferior
+    position: 'absolute',
+    bottom: 40,
   },
-  logoutButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: 10,
-  },
+  logoutButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold', marginLeft: 10 },
 });
