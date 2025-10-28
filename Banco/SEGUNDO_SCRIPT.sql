@@ -153,7 +153,43 @@ WHERE
     AND JSON_EXTRACT(p.boundary, '$.type') IS NOT NULL -- Garante que tem a chave 'type'
     AND JSON_EXTRACT(p.boundary, '$.coordinates') IS NOT NULL; -- Garante que tem a chave 'coordinates'
 
+-- ///////////////////// --
+-- 1. Alterar a tabela USERS
+-- Adiciona a coluna CPF, que deve ser único para garantir a identidade
+ALTER TABLE users
+ADD COLUMN cpf VARCHAR(14) UNIQUE NULL AFTER nome_completo; 
+-- OBS: O CPF DEVE ser ÚNICO se for usado como identificador principal!
 
+-- 2. Alterar a tabela PROPERTIES (para facilitar a associação e consultas)
+-- Adiciona a coluna CPF para espelhar o dono da propriedade
+ALTER TABLE properties
+ADD COLUMN cpf_proprietario VARCHAR(14) NULL AFTER user_id;
+
+-- 3.
+-- Desabilita o modo de segurança para permitir os UPDATEs em massa
+SET SQL_SAFE_UPDATES = 0;
+
+-- Atualiza a tabela 'properties' com o CPF da tabela 'staging'
+-- (Ligação via car_code = cod_imovel)
+UPDATE properties p
+JOIN staging_properties sp ON p.car_code = sp.cod_imovel
+SET 
+    p.cpf_proprietario = sp.cod_cpf_cnpj
+WHERE 
+    sp.cod_cpf_cnpj IS NOT NULL AND sp.cod_cpf_cnpj != '';
+
+-- Atualiza a tabela 'users' com o CPF da tabela 'staging'
+-- (Ligação via email gerado = cod_cpf_cnpj)
+UPDATE users u
+JOIN staging_properties sp ON u.email = CONCAT(sp.cod_cpf_cnpj, '@georah.com')
+SET 
+    u.cpf = sp.cod_cpf_cnpj
+WHERE 
+    sp.cod_cpf_cnpj IS NOT NULL AND sp.cod_cpf_cnpj != '';
+
+-- Reabilita o modo de segurança
+SET SQL_SAFE_UPDATES = 1;
+-- ///////////////////// --
 -- Reabilita o modo de segurança
 SET SQL_SAFE_UPDATES = 1;
 
