@@ -27,13 +27,13 @@ A aplicação oferecerá:
 | 5 | Alta | Como usuário, quero visualizar minhas propriedades no mapa interativo. | 8 pts | 1 | Propriedades aparecem como marcadores no mapa. | ✅ |
 | 3 | Média | Como visitante, quero acessar uma versão limitada do app sem login. | 2 pts | 1 | Visitantes acessam somente informações públicas. | ✅ |
 | 6 | Média | Como usuário, quero diferenciar propriedades com e sem endereço no mapa. | 3 pts | 1 | Marcadores mostram claramente se têm endereço ou não. | ✅ |
-| 8 | Média | Como usuário, quero definir o endereço da propriedade arrastando o marcador no mapa. | 5 pts | 2 | Endereço atualizado é salvo corretamente. | ⏳ |
-| 9 | Médiap | Como usuário, quero definir o endereço usando o GPS do dispositivo. | 5 pts | 2 | Coordenadas salvas automaticamente. | ⏳ |
+| 8 | Média | Como usuário, quero definir o endereço da propriedade arrastando o marcador no mapa. | 5 pts | 3 | Endereço atualizado é salvo corretamente. | ⏳ |
+| 9 | Médiap | Como usuário, quero definir o endereço usando o GPS do dispositivo. | 5 pts | 3 | Coordenadas salvas automaticamente. | ⏳ |
 | 10 | Média | Como usuário, quero salvar coordenadas associadas a minha propriedade. | 3 pts | 2 | Dados persistem no sistema. | ✅ |
 | 11 | Média | Como usuário, quero gerar um certificado em PDF com meu endereço atualizado. | 5 pts | 2 | PDF é gerado corretamente. | ✅ |
 | 12 | Média | Como usuário, quero receber o certificado por e-mail automaticamente. | 3 pts | 2 | Usuário recebe o certificado no e-mail cadastrado. | ✅ |
 | 13 | Média | Como usuário, quero visualizar os dados fornecidos pelo cliente, incluindo área do projeto, área do imóvel e rotas. | 8 pts | 2 | Áreas e rotas aparecem vinculadas à propriedade. | ✅ |
-| 19 | Média | Como usuário, quero definir um ponto de entrada da propriedade para que o cálculo de rota utilize esse ponto como referência. | 5 pts | 2 | Rota usa o ponto de entrada definido pelo usuário. | ⏳ |
+| 19 | Média | Como usuário, quero definir um ponto de entrada da propriedade para que o cálculo de rota utilize esse ponto como referência. | 5 pts | 3 | Rota usa o ponto de entrada definido pelo usuário. | ⏳ |
 | 7 | Baixa | Como usuário, quero validar no CAR para acessar minhas propriedades. | 5 pts | 2 | Usuário consegue acessar suas propriedades. | ✅ |
 | 14 | Baixa | Como usuário, quero planejar rotas entre duas propriedades. | 8 pts | 3 | Usuário visualiza caminho entre propriedades. | ⏳ |
 | 15 | Baixa | Como usuário, quero ver tempo, distância e rotas alternativas. | 5 pts | 3 | Informações aparecem corretamente. | ⏳ |
