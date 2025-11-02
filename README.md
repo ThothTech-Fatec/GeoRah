@@ -19,29 +19,29 @@ A aplicação oferecerá:
 
 ## 📃 Backlog do Produto
 
+| Rank | Prioridade | User Story | Estimativa | Sprint | Critério de Aceitação | Status |
+|------|------------|------------|------------|--------|-----------------------|--------|
+| 1 | Alta | Como usuário, quero logar com meu e-mail. | 5 pts | 1 | Usuário consegue logar com sucesso. | ✅ |
+| 2 | Alta | Como usuário, quero que minha sessão seja protegida com autenticação JWT/OAuth. | 3 pts | 1 | Apenas usuários autenticados conseguem acessar. | ✅ |
+| 4 | Alta | Como usuário, quero ver a listagem das minhas propriedades no app. | 5 pts | 1 | Propriedades vinculadas ao usuário aparecem listadas. | ✅ |
+| 5 | Alta | Como usuário, quero visualizar minhas propriedades no mapa interativo. | 8 pts | 1 | Propriedades aparecem como marcadores no mapa. | ✅ |
+| 3 | Média | Como visitante, quero acessar uma versão limitada do app sem login. | 2 pts | 1 | Visitantes acessam somente informações públicas. | ✅ |
+| 6 | Média | Como usuário, quero diferenciar propriedades com e sem endereço no mapa. | 3 pts | 1 | Marcadores mostram claramente se têm endereço ou não. | ✅ |
+| 8 | Média | Como usuário, quero definir o endereço da propriedade arrastando o marcador no mapa. | 5 pts | 2 | Endereço atualizado é salvo corretamente. | ⏳ |
+| 9 | Médiap | Como usuário, quero definir o endereço usando o GPS do dispositivo. | 5 pts | 2 | Coordenadas salvas automaticamente. | ⏳ |
+| 10 | Média | Como usuário, quero salvar coordenadas associadas a minha propriedade. | 3 pts | 2 | Dados persistem no sistema. | ✅ |
+| 11 | Média | Como usuário, quero gerar um certificado em PDF com meu endereço atualizado. | 5 pts | 2 | PDF é gerado corretamente. | ✅ |
+| 12 | Média | Como usuário, quero receber o certificado por e-mail automaticamente. | 3 pts | 2 | Usuário recebe o certificado no e-mail cadastrado. | ✅ |
+| 13 | Média | Como usuário, quero visualizar os dados fornecidos pelo cliente, incluindo área do projeto, área do imóvel e rotas. | 8 pts | 2 | Áreas e rotas aparecem vinculadas à propriedade. | ✅ |
+| 19 | Média | Como usuário, quero definir um ponto de entrada da propriedade para que o cálculo de rota utilize esse ponto como referência. | 5 pts | 2 | Rota usa o ponto de entrada definido pelo usuário. | ⏳ |
+| 7 | Baixa | Como usuário, quero validar no CAR para acessar minhas propriedades. | 5 pts | 2 | Usuário consegue acessar suas propriedades. | ✅ |
+| 14 | Baixa | Como usuário, quero planejar rotas entre duas propriedades. | 8 pts | 3 | Usuário visualiza caminho entre propriedades. | ⏳ |
+| 15 | Baixa | Como usuário, quero ver tempo, distância e rotas alternativas. | 5 pts | 3 | Informações aparecem corretamente. | ⏳ |
+| 16 | Baixa | Como usuário, quero criar alertas colaborativos sobre condições da estrada. | 5 pts | 3 | Alertas ficam visíveis no mapa. | ⏳ |
+| 17 | Baixa | Como usuário, quero receber alertas meteorológicos integrados de uma API de clima. | 5 pts | 3 | Alertas aparecem em tempo real. | ⏳ |
+| 18 | Baixa | Como usuário, quero que os alertas tenham validade/expiração automática. | 3 pts | 3 | Alertas vencidos desaparecem do mapa. | ⏳ |
 
-| Rank | Prioridade | User Story | Estimativa | Sprint | Requisito do Parceiro | Critério de Aceitação | Status |
-|------|------------|------------|------------|--------|------------------------|-----------------------|--------|
-| 1 | Alta | Como usuário, quero logar com meu e-mail. | 5 pts | 1 | Autenticação com e-mail | Usuário consegue logar com sucesso. | ✅ |
-| 2 | Alta | Como usuário, quero que minha sessão seja protegida com autenticação JWT/OAuth. | 3 pts | 1 | Segurança de login | Apenas usuários autenticados conseguem acessar. | ✅ |
-| 3 | Média | Como visitante, quero acessar uma versão limitada do app sem login. | 2 pts | 1 | Acesso restrito | Visitantes acessam somente informações públicas. | ✅ |
-| 4 | Alta | Como usuário, quero ver a listagem das minhas propriedades no app. | 5 pts | 1 | Exibição de propriedades | Propriedades vinculadas ao usuário aparecem listadas. | ✅ |
-| 5 | Alta | Como usuário, quero visualizar minhas propriedades no mapa interativo. | 8 pts | 1 | Integração com mapa | Propriedades aparecem como marcadores no mapa. | ✅ |
-| 6 | Média | Como usuário, quero diferenciar propriedades com e sem endereço no mapa. | 3 pts | 1 | Diferenciação visual | Marcadores mostram claramente se têm endereço ou não. | ✅ |
-| 7 | Alta | Como usuário, quero validar no CAR para acessar minhas propriedades. | 5 pts | 2 | Autenticação com CAR | Usuário consegue acessar suas propriedades. | ⏳ |
-| 8 | Alta | Como usuário, quero definir o endereço da propriedade arrastando o marcador no mapa. | 5 pts | 2 | GPS/arrasto no mapa | Endereço atualizado é salvo corretamente. | ⏳ |
-| 9 | Alta | Como usuário, quero definir o endereço usando o GPS do dispositivo. | 5 pts | 2 | Integração com GPS | Coordenadas salvas automaticamente. | ⏳ |
-| 10 | Alta | Como usuário, quero salvar coordenadas associadas a minha propriedade. | 3 pts | 2 | Banco de dados integrado | Dados persistem no sistema. | ⏳ |
-| 11 | Alta | Como usuário, quero gerar um certificado em PDF com meu endereço atualizado. | 5 pts | 2 | Certificado oficial | PDF é gerado corretamente. | ⏳ |
-| 12 | Alta | Como usuário, quero receber o certificado por e-mail automaticamente. | 3 pts | 2 | Integração com e-mail | Usuário recebe certificado no e-mail cadastrado. | ⏳ |
-| 13 | Alta | Como usuário, quero visualizar os dados fornecidos pelo cliente, incluindo área do projeto, área do imóvel e rotas. | 8 pts | 2 | Dados do cliente integrados | As informações de área e rotas aparecem corretamente no sistema e são vinculadas à propriedade. | ⏳ |
-| 14 | Alta | Como usuário, quero planejar rotas entre duas propriedades. | 8 pts | 3 | Rotas integradas ao mapa | Usuário visualiza caminho entre propriedades. | ⏳ |
-| 15 | Alta | Como usuário, quero ver tempo, distância e rotas alternativas. | 5 pts | 3 | API de rotas | Informações de tempo/distância aparecem corretamente. | ⏳ |
-| 16 | Média | Como usuário, quero criar alertas colaborativos sobre condições da estrada. | 5 pts | 3 | Alertas colaborativos | Alertas ficam visíveis no mapa. | ⏳ |
-| 17 | Média | Como usuário, quero receber alertas meteorológicos integrados de uma API de clima. | 5 pts | 3 | Integração com API de clima | Alertas aparecem em tempo real. | ⏳ |
-| 18 | Baixa | Como usuário, quero que os alertas tenham validade/expiração automática. | 3 pts | 3 | Gerenciamento de alertas | Alertas vencidos desaparecem do mapa. | ⏳ |
 
----
 
 # ✅ Critérios de Aceitação Detalhados
 
