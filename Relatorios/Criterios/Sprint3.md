@@ -48,3 +48,10 @@
 
 ---
 
+#### 19. Definir Ponto de Entrada da Propriedade (para rotas)
+- **User Story:** Como usuário, quero definir um ponto de entrada principal da propriedade para que as rotas utilizem este ponto como referência.
+- **Critérios:**
+  1. Usuário pode posicionar manualmente um marcador representando o ponto de entrada no mapa.
+  2. O ponto definido deve ser salvo e associado à propriedade no banco de dados.
+  3. Ao traçar uma rota para a propriedade, o sistema utiliza automaticamente o ponto de entrada como destino padrão.
+  4. Usuário pode atualizar o ponto de entrada sempre que desejar.
