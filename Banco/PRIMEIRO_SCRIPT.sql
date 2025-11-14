@@ -57,4 +57,4 @@ CREATE TABLE IF NOT EXISTS staging_properties (
 
 select * from properties where nome_propriedade ="fdsfsdf" ;
 select * from properties;
-select * from users;
+select * from users where cpf = "334.105.883-45";

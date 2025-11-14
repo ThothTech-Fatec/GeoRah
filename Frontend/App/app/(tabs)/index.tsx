@@ -155,6 +155,7 @@ export default function MapScreen() {
       } catch (error) { console.error("Error getting location:", error); }
     })();
   }, []);
+  
 
   // Busca/Processa propriedades (SÓ dados básicos, SEM processar boundary)
  // index.tsx
