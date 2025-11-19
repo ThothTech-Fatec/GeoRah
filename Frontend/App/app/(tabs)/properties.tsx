@@ -1,33 +1,32 @@
 // app/(tabs)/properties.tsx
-import React, { useEffect, useState } from 'react'; // Adicione useState
-import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator, Modal, Linking } from 'react-native'; // <-- Adiciona Linking
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator, TextInput, Modal } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useProperties, Property } from '../../context/PropertyContext';
 import { useMap } from '../../context/MapContext';
-import { cacheDirectory, downloadAsync } from 'expo-file-system/legacy';
-import axios from 'axios';
-import { WebView } from 'react-native-webview'; // Adicione WebView
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import * as FileSystem from 'expo-file-system/legacy'; // Importa 'cacheDirectory' e 'downloadAsync' diretamente
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import axios from 'axios';
 import { useIsFocused } from '@react-navigation/native';
 import Constants from 'expo-constants';
 
 const API_URL = "http://10.0.2.2:3000";
 
 export default function PropertiesScreen() {
-  const { authToken } = useAuth();
-  const { properties, isLoading, fetchProperties, deleteProperty } = useProperties();
+  const { authToken, user, setUser } = useAuth();
+  const { properties, isLoading, fetchProperties } = useProperties();
   const { focusOnLocation } = useMap();
   const router = useRouter();
   const isFocused = useIsFocused();
-  const [downloadingId, setDownloadingId] = useState<number | null>(null); // NOVO ESTADO
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+  const [newName, setNewName] = useState('');
 
   useEffect(() => {
-    if (isFocused) {
-      fetchProperties();
-    }
+    if (isFocused) fetchProperties();
   }, [fetchProperties, isFocused]);
 
   const handleViewOnMap = (latitude: number, longitude: number) => {
@@ -35,91 +34,73 @@ export default function PropertiesScreen() {
     router.push('/');
   };
 
-  const handleDeleteProperty = (propertyId: number) => {
-    Alert.alert(
-      "Confirmar Exclusão",
-      "Tem certeza de que deseja excluir esta propriedade?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Excluir",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await axios.delete(`${API_URL}/properties/${propertyId}`, {
-                headers: { Authorization: `Bearer ${authToken}` },
-              });
-              deleteProperty(propertyId); // Notifica o contexto para remover a propriedade
-              Alert.alert("Sucesso", "Propriedade excluída com sucesso.");
-            } catch (error) {
-              // eslint-disable-next-line import/no-named-as-default-member
-              if (axios.isAxiosError(error) && error.response) {
-                Alert.alert("Erro", error.response.data.message);
-              } else {
-                Alert.alert("Erro", "Ocorreu um erro de conexão.");
-              }
-            }
-          },
-        },
-      ]
-    );
-  };
-
-
   const handleDownloadCertificate = async (property: Property) => {
-    if (!authToken || !property || !property.id) return;
-    setDownloadingId(property.id); // Inicia o loading para este item
-
+    if (!authToken || !property?.id) return;
+    setDownloadingId(property.id);
     try {
-      const uri = FileSystem.cacheDirectory + `certificado_${property.id}.pdf`;
-      console.log('Tentando baixar certificado para:', uri);
-
+      const uri = FileSystem.cacheDirectory + `certificado_${property.nome_propriedade}.pdf`;
       const downloadResult = await FileSystem.downloadAsync(
         `${API_URL}/properties/${property.id}/certificate`,
         uri,
         { headers: { Authorization: `Bearer ${authToken}` } }
       );
 
-      console.log('Download concluído:', downloadResult);
-
-      if (downloadResult.status !== 200) {
-        throw new Error(`Erro no servidor: ${downloadResult.status}`);
-      }
-
-      // Verifica se o compartilhamento está disponível
+      if (downloadResult.status !== 200) throw new Error(`Erro no servidor: ${downloadResult.status}`);
       if (!(await Sharing.isAvailableAsync())) {
         Alert.alert('Erro', 'Compartilhamento não disponível neste dispositivo.');
         setDownloadingId(null);
         return;
       }
 
-      // Abre a opção de compartilhar/visualizar o PDF
       await Sharing.shareAsync(uri, { dialogTitle: 'Abrir ou Salvar Certificado', mimeType: 'application/pdf' });
-
     } catch (error: any) {
-      console.error("Erro ao baixar/compartilhar certificado:", error);
-      Alert.alert('Erro', 'Não foi possível baixar ou abrir o certificado. Verifique sua conexão ou tente novamente.');
+      Alert.alert('Erro', 'Não foi possível baixar ou abrir o certificado.');
+      console.error(error);
     } finally {
-      setDownloadingId(null); // Finaliza o loading para este item
+      setDownloadingId(null);
     }
   };
 
-  const renderPropertyItem = ({ item }: { item: any }) => (
+  const openEditModal = (property: Property) => {
+    setEditingProperty(property);
+    setNewName(property.nome_propriedade);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveName = async () => {
+    if (!editingProperty || !newName.trim()) return;
+
+    try {
+      await axios.put(`${API_URL}/properties/${editingProperty.id}`, 
+        { nome_propriedade: newName.trim() },
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+
+
+      // refresh properties list after update
+      await fetchProperties();
+      setEditModalVisible(false);
+    } catch (error: any) {
+      Alert.alert('Erro', 'Não foi possível atualizar o nome. Tente novamente.');
+      console.error(error);
+    }
+  };
+
+  const renderPropertyItem = ({ item }: { item: Property }) => (
     <View style={styles.propertyCard}>
       <Text style={styles.propertyName}>{item.nome_propriedade}</Text>
       <Text style={styles.propertyInfo}>CAR: {item.car_code}</Text>
       <Text style={styles.propertyInfo}>Plus Code: {item.plus_code}</Text>
       <View style={styles.buttonContainer}>
-        {/* Botão Ver no Mapa */}
         <Pressable style={[styles.button, styles.viewButton]} onPress={() => handleViewOnMap(item.latitude, item.longitude)}>
           <FontAwesome name="map-marker" size={16} color="white" />
           <Text style={styles.buttonText}>Ver</Text>
         </Pressable>
-        {/* NOVO Botão Download */}
+
         <Pressable 
           style={[styles.button, styles.downloadButton]} 
           onPress={() => handleDownloadCertificate(item)} 
-          disabled={downloadingId === item.id} // Desabilita enquanto baixa
+          disabled={downloadingId === item.id}
         >
           {downloadingId === item.id ? (
             <ActivityIndicator size="small" color="white" />
@@ -131,18 +112,15 @@ export default function PropertiesScreen() {
           )}
         </Pressable>
 
-        {/* Botão Excluir */}
-        <Pressable style={[styles.button, styles.deleteButton]} onPress={() => handleDeleteProperty(item.id)}>
-          <FontAwesome name="trash" size={16} color="white" />
-          <Text style={styles.buttonText}>Excluir</Text>
+        <Pressable style={[styles.button, styles.editButton]} onPress={() => openEditModal(item)}>
+          <FontAwesome name="pencil" size={16} color="white" />
+          <Text style={styles.buttonText}>Editar</Text>
         </Pressable>
       </View>
     </View>
   );
 
-  if (isLoading) {
-    return <View style={styles.container}><ActivityIndicator size="large" color="#007BFF" /></View>;
-  }
+  if (isLoading) return <View style={styles.container}><ActivityIndicator size="large" color="#007BFF" /></View>;
 
   return (
     <View style={styles.container}>
@@ -157,12 +135,33 @@ export default function PropertiesScreen() {
           contentContainerStyle={{ paddingBottom: 20 }}
         />
       )}
-  {/* --- FIM DO MODAL --- */}
+
+      {/* Modal para editar o nome */}
+      <Modal visible={editModalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Editar Nome</Text>
+            <TextInput 
+              style={styles.input} 
+              value={newName} 
+              onChangeText={setNewName} 
+              placeholder="Digite o novo nome" 
+            />
+            <View style={styles.modalButtons}>
+              <Pressable style={[styles.button, styles.saveButton]} onPress={handleSaveName}>
+                <Text style={styles.buttonText}>Salvar</Text>
+              </Pressable>
+              <Pressable style={[styles.button, styles.cancelButton]} onPress={() => setEditModalVisible(false)}>
+                <Text style={styles.buttonText}>Cancelar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-// Estilos
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, backgroundColor: '#f2f2f2' },
   title: { fontSize: 28, fontWeight: 'bold', marginBottom: 20, marginTop: 30 },
@@ -172,33 +171,15 @@ const styles = StyleSheet.create({
   buttonContainer: { flexDirection: 'row', marginTop: 15, justifyContent: 'flex-end' },
   button: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, marginLeft: 10 },
   viewButton: { backgroundColor: '#007BFF' },
-  deleteButton: { backgroundColor: '#d9534f' },
-  downloadButton: { backgroundColor: '#17a2b8' }, // Cor Ciano/Azul claro
+  downloadButton: { backgroundColor: '#17a2b8' },
+  editButton: { backgroundColor: '#ffc107' },
   buttonText: { color: 'white', fontWeight: 'bold', marginLeft: 8 },
   emptyText: { textAlign: 'center', fontSize: 16, marginTop: 50, color: '#666' },
-  modalContainer: { 
-    flex: 1, 
-    marginTop: Constants.statusBarHeight || 0, // Evita sobrepor a status bar
-    backgroundColor: '#fff',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    backgroundColor: '#f8f8f8',
-  },
-  modalTitleText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  closeButton: {
-    padding: 5,
-  },
-  webView: {
-    flex: 1,
-  },
+  modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalContent: { width: '90%', backgroundColor: '#fff', borderRadius: 10, padding: 20 },
+  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
+  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 6, padding: 10, marginBottom: 15 },
+  modalButtons: { flexDirection: 'row', justifyContent: 'flex-end' },
+  saveButton: { backgroundColor: '#28a745', marginRight: 10 },
+  cancelButton: { backgroundColor: '#6c757d' },
 });
