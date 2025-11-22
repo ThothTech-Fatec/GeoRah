@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import util from 'util';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 
 const app = express();
 app.use(cors());
@@ -21,6 +22,14 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("A chave JWT_SECRET não está definida no arquivo .env");
 
+const MONGO_URI = "mongodb://localhost:27017/georah_mongo";
+if (MONGO_URI) {
+  mongoose.connect(MONGO_URI)
+    .then(() => console.log('🍃 Conectado ao MongoDB com sucesso!'))
+    .catch(err => console.error('Erro ao conectar ao MongoDB:', err));
+} else {
+  console.warn('Aviso: MONGO_URI não definida no .env');
+}
 
 const db = mysql.createConnection({
   host: 'localhost',
@@ -380,12 +389,38 @@ app.put('/properties/:id', protect, (req: any, res: Response) => {
   });
 });
 
+app.patch('/properties/:id/location', protect, (req: any, res: Response) => {
+  const propertyId = req.params.id;
+  const userId = req.user.id; // Obtido do token pelo middleware 'protect'
+  const { latitude, longitude } = req.body;
 
+  // 1. Validação básica
+  if (!latitude || !longitude) {
+    return res.status(400).json({ message: 'Latitude e Longitude são obrigatórias.' });
+  }
+
+  // 2. Atualiza no banco APENAS se o ID e o USER_ID corresponderem
+  const query = 'UPDATE properties SET latitude = ?, longitude = ? WHERE id = ? AND user_id = ?';
+  
+  db.query(query, [latitude, longitude, propertyId, userId], (err, results: any) => {
+    if (err) {
+      console.error("Erro ao atualizar localização:", err);
+      return res.status(500).json({ message: 'Erro interno ao atualizar localização.' });
+    }
+
+    // Se affectedRows for 0, significa que a propriedade não existe OU não pertence a esse usuário
+    if (results.affectedRows === 0) {
+      return res.status(404).json({ message: 'Propriedade não encontrada ou permissão negada.' });
+    }
+
+    return res.status(200).json({ message: 'Ponto de entrada atualizado com sucesso.' });
+  });
+});
 
 app.get('/profile', protect, (req: any, res: Response) => {
   const userId = req.user.id; // ID do usuário a partir do token JWT (middleware 'protect')
 
-  db.query('SELECT id, nome_completo, cpf,  email FROM users WHERE id = ?', [userId], (err, results: any) => {
+  db.query('SELECT id, nome_completo, email FROM users WHERE id = ?', [userId], (err, results: any) => {
     if (err) {
       console.error("Erro ao buscar perfil:", err);
       return res.status(500).json({ message: 'Erro ao buscar dados do perfil.' });
@@ -403,7 +438,7 @@ app.get('/profile', protect, (req: any, res: Response) => {
     return res.status(200).json({
       nome_completo: user.nome_completo,
       email: user.email,
-      cpf: user.cpf // Enviamos o CPF extraído
+      cpf: cpf // Enviamos o CPF extraído
     });
   });
 });

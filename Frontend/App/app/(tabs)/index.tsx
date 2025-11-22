@@ -73,6 +73,25 @@ const parseBoundaryToLatLng = (boundary: any, car_code: string): LatLng[] => {
   }
   return parsedBoundary;
 };
+const isPointInPolygon = (point: LatLng, polygon: LatLng[]): boolean => {
+  if (!polygon || polygon.length < 3) return false;
+
+  let inside = false;
+  const x = point.longitude, y = point.latitude;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].longitude, yi = polygon[i].latitude;
+    const xj = polygon[j].longitude, yj = polygon[j].latitude;
+
+    const intersect = ((yi > y) !== (yj > y))
+        && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+};
+
 const processBasicData = (properties: Property[]): Property[] => {
   if (!properties || properties.length === 0) return [];
   return properties.map(prop => ({
@@ -479,9 +498,87 @@ useEffect(() => {
                   title={String(prop.nome_propriedade ?? "Propriedade")} // Título padrão do marcador (pode aparecer em algumas interações)
                   // Descrição padrão do marcador, mostra o Plus Code se já existir
                   description={`Plus Code: ${prop.plus_code ?? (isSelected ? selectedMarkerPlusCode ?? '...' : '...')}`} 
-                  onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }} // Chama a função ao clicar no PINO
-                  onDeselect={() => { if (isSelected) { setSelectedMarkerId(null); setSelectedMarkerPlusCode(null); } }} // Limpa seleção
                   zIndex={isSelected ? 1 : 0} // Coloca o marcador selecionado acima
+                // 1. Só permite arrastar se for o dono
+                  draggable={isOwner} 
+                  onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
+                  onDeselect={() => { if (isSelected) { setSelectedMarkerId(null); setSelectedMarkerPlusCode(null); } }}
+
+                  onDragEnd={async (e) => {
+                    const newCoordinate = e.nativeEvent.coordinate;
+                    let boundaryToValidate = prop.boundary;
+                    
+                    // 1. Tenta pegar do cache de polígonos visíveis
+                    if (!boundaryToValidate) {
+                        boundaryToValidate = visibleBoundaries[prop.id];
+                    }
+                    if (!boundaryToValidate) {
+                        const userProp = userProperties.find(p => p.id === prop.id);
+                        if (userProp) {
+                            boundaryToValidate = userProp.boundary;
+                        }
+                    }
+
+                    const polygonCoords = parseBoundaryToLatLng(boundaryToValidate, String(prop.car_code));
+                    // B. Validação Matemática (Etapa 2)
+                    // Se tiver polígono e o ponto estiver FORA dele:
+                    if (polygonCoords.length > 2 && !isPointInPolygon(newCoordinate, polygonCoords)) {
+                      Alert.alert("Movimento Inválido", "O ponto de entrada deve ficar DENTRO dos limites da propriedade.");
+                      // Força uma re-renderização para o pino voltar para a posição original (visual snap-back)
+                      setMapProperties([...mapProperties]); 
+                      return;
+                    }
+
+                    // C. Confirmação e Salvamento (Etapa 1)
+                    Alert.alert(
+                      "Definir Entrada",
+                      "Deseja definir este ponto como a nova entrada da propriedade?",
+                      [
+                        { 
+                          text: "Cancelar", 
+                          style: "cancel", 
+                          onPress: () => setMapProperties([...mapProperties]) // Volta o pino se cancelar
+                        },
+                        { 
+                          text: "Sim", 
+                          onPress: async () => {
+                            try {
+                              // Chama a API criada na Etapa 1
+                              await axios.patch(`${API_URL}/properties/${prop.id}/location`, 
+                                { latitude: newCoordinate.latitude, longitude: newCoordinate.longitude },
+                                { headers: { Authorization: `Bearer ${authToken}` } }
+                              );
+                              
+                              // Atualiza o estado local para refletir a mudança permanentemente
+                              const updatedProps = mapProperties.map(p => 
+                                p.id === prop.id ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } : p
+                              );
+                              setMapProperties(updatedProps);
+                              
+                              // 2. Atualiza o cache de "Todas" (independente do modo, para garantir sincronia)
+                              setPublicPropertiesCache(prev => prev.map(p => 
+                                p.id === prop.id ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } : p
+                              ));
+
+                              // 3. Atualiza o contexto de "Minhas Propriedades" (Fundamental para a troca de abas)
+                              fetchProperties();
+                              
+                              // Se estiver no modo 'all', atualiza o cache também
+                              if (filterMode === 'all') {
+                                setPublicPropertiesCache(updatedProps);
+                              }
+                              
+                              Alert.alert("Sucesso", "Ponto de entrada atualizado.");
+                            } catch (error) {
+                              console.error(error);
+                              Alert.alert("Erro", "Não foi possível atualizar a localização.");
+                              setMapProperties([...mapProperties]); // Reverte em caso de erro
+                            }
+                          } 
+                        }
+                      ]
+                    );
+                  }}
                 >
                 </Marker>
                    {/* 4. Renderiza o polígono se as condições forem atendidas */}
