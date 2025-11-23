@@ -2,6 +2,9 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { RowDataPacket } from 'mysql2';
+import { routeEngine } from '../services/routeEngine';
+import RoadModel from '../models/Road';
+import { getWeatherAlert } from '../services/weatherService';
 import mysql from 'mysql2';
 import bcrypt from 'bcryptjs';
 import cors from 'cors';
@@ -9,8 +12,6 @@ import { protect } from '../middleware/authMiddleware';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
-import fs from 'fs';
-import path from 'path';
 import util from 'util';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
@@ -23,13 +24,14 @@ const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("A chave JWT_SECRET não está definida no arquivo .env");
 
 const MONGO_URI = "mongodb://localhost:27017/georah_mongo";
-if (MONGO_URI) {
-  mongoose.connect(MONGO_URI)
-    .then(() => console.log('🍃 Conectado ao MongoDB com sucesso!'))
-    .catch(err => console.error('Erro ao conectar ao MongoDB:', err));
-} else {
-  console.warn('Aviso: MONGO_URI não definida no .env');
-}
+
+mongoose.connect(MONGO_URI)
+  .then(async () => {
+    console.log('🍃 Conectado ao MongoDB com sucesso!');
+
+    await routeEngine.initialize();
+  })
+  .catch(err => console.error('Erro ao conectar ao MongoDB:', err));
 
 const db = mysql.createConnection({
   host: 'localhost',
@@ -545,7 +547,7 @@ app.get('/properties/public/boundaries', (req: Request, res: Response) => {
   }
 
   // 2. Só retorna dados se o zoom estiver próximo (use a mesma constante do frontend)
-  const POLYGON_ZOOM_THRESHOLD = 0.05; //
+  const POLYGON_ZOOM_THRESHOLD = 0.1; //
   const includeBoundary = parseFloat(latitudeDelta as string) < POLYGON_ZOOM_THRESHOLD;
 
   if (!includeBoundary) {
@@ -578,6 +580,63 @@ app.get('/properties/public/boundaries', (req: Request, res: Response) => {
   });
 });
 
+app.get('/routes/custom', protect, async (req: any, res: Response) => {
+  const { originId, destinationId } = req.query;
+
+  if (!originId || !destinationId) {
+    return res.status(400).json({ message: 'Origem e destino são obrigatórios.' });
+  }
+
+  try {
+    // 1. Busca as coordenadas das propriedades no MySQL
+    const query = 'SELECT id, latitude, longitude FROM properties WHERE id IN (?, ?)';
+    const properties = await dbQuery(query, [originId, destinationId]) as any[];
+
+    const originProp = properties.find(p => p.id == originId);
+    const destProp = properties.find(p => p.id == destinationId);
+
+    if (!originProp || !destProp) {
+      return res.status(404).json({ message: 'Propriedades não encontradas.' });
+    }
+
+    console.log(`🗺️ Calculando rota de ${originId} para ${destinationId}...`);
+
+    const result = routeEngine.calculateRouteWithAlternatives(
+      Number(originProp.latitude),
+      Number(originProp.longitude),
+      Number(destProp.latitude),
+      Number(destProp.longitude)
+    );
+
+    if (!result || !result.main) {
+      return res.status(404).json({ message: 'Não foi possível encontrar um caminho entre estas propriedades.' });
+    }
+
+    const weatherAlert = await getWeatherAlert(Number(destProp.latitude), Number(destProp.longitude));
+    
+    if (weatherAlert) {
+       console.log(`🌧️ Alerta de Clima detectado: ${weatherAlert.title}`);
+    }
+
+    // Monta a resposta injetando o alerta (se houver) nas rotas
+    const responsePayload = {
+      message: 'Cálculo realizado com sucesso.',
+      main: { ...result.main, alert: weatherAlert }, 
+      alternative: result.alternative 
+        ? { ...result.alternative, alert: weatherAlert } 
+        : null
+    };
+
+    return res.status(200).json(responsePayload);
+
+  } catch (error: any) {
+    console.error("Erro ao calcular rota customizada:", error);
+    if (error.message && (error.message.includes('Estrada não encontrada') || error.message.includes('estrada próxima'))) {
+        return res.status(400).json({ message: error.message });
+    }
+    return res.status(500).json({ message: 'Erro interno ao calcular rota.' });
+  }
+});
 
 // Autenticação via EMAIL
 
