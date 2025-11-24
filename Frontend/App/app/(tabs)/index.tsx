@@ -32,8 +32,26 @@ const isMarkerVisible = (markerCoords: LatLng, region: Region | null): boolean =
   );
 };
 
-// --- Função Auxiliar para parsear o boundary ---
-// Chamada "Just-in-Time" (só quando for renderizar)
+type AlertType = 'ANIMAL' | 'OBSTACLE' | 'BROKEN_VEHICLE' | 'ACCIDENT' | 'CONSTRUCTION' | 'BLOCKED';
+
+interface RoadAlert {
+  id: string;
+  lat: number;
+  lng: number;
+  type: AlertType;
+  timestamp: number;
+}
+
+// Mapa de ícones e cores para cada tipo de alerta
+const ALERT_CONFIG: Record<AlertType, { label: string; icon: string; color: string }> = {
+  ANIMAL: { label: 'Animal na Pista', icon: 'paw', color: '#FF9800' }, // Laranja
+  OBSTACLE: { label: 'Obstáculo', icon: 'cube', color: '#FFC107' }, // Amarelo
+  BROKEN_VEHICLE: { label: 'Veículo Quebrado', icon: 'car', color: '#607D8B' }, // Cinza
+  ACCIDENT: { label: 'Acidente', icon: 'exclamation-circle', color: '#D32F2F' }, // Vermelho
+  CONSTRUCTION: { label: 'Obras', icon: 'wrench', color: '#F57C00' }, // Laranja Escuro
+  BLOCKED: { label: 'Bloqueio', icon: 'ban', color: '#B71C1C' }, // Vermelho Escuro
+};
+
 const parseBoundaryToLatLng = (boundary: any, car_code: string): LatLng[] => {
   if (!boundary) return [];
   let parsedBoundary: LatLng[] = [];
@@ -107,6 +125,7 @@ export default function MapScreen() {
   console.log("--- MapScreen RENDERED ---");
 
   // --- Estados ---
+  const [selectedClusterAlerts, setSelectedClusterAlerts] = useState<RoadAlert[] | null>(null);
   const { authToken, isGuest } = useAuth();
   const { properties: userProperties, addProperty, fetchProperties } = useProperties();
   // app/(tabs)/index.tsx
@@ -120,25 +139,14 @@ export default function MapScreen() {
   const [mapProperties, setMapProperties] = useState<Property[]>([]);
   // Cache para todas as propriedades públicas
   const [publicPropertiesCache, setPublicPropertiesCache] = useState<Property[]>([]);
-  // Estado do filtro
+  const [mapAlerts, setMapAlerts] = useState<RoadAlert[]>([]);
+  const [isAlertModalVisible, setIsAlertModalVisible] = useState(false);
+  const [isReporting, setIsReporting] = useState(false);
   const [filterMode, setFilterMode] = useState<'all' | 'mine'>('all');
-  // index.tsx
-  // ... (abaixo de currentRegion)
-
-  // CACHE DE POLÍGONOS: Armazena apenas os polígonos baixados. Formato: { "prop_id": "boundary_data" }
   const [visibleBoundaries, setVisibleBoundaries] = useState<{ [key: string]: any }>({});
-
-  // ESTADOS DE CARREGAMENTO (isLoading já existe)
-  const [isFetchingData, setIsFetchingData] = useState(false); // Para carregar polígonos
-
-  // ESTADOS DE CONTROLE (Refs) - Para evitar loops
+  const [isFetchingData, setIsFetchingData] = useState(false);
   const isFetchingBoundariesRef = useRef(false);
   const initialMarkerFetchDone = useRef(false);
-  // app/(tabs)/index.tsx
-
-  // ... outros estados ...
-
-  // --- ESTADOS DO SISTEMA DE ROTAS (ETAPA 5) ---
   const [routes, setRoutes] = useState<any[]>([]);
   const [routeOriginId, setRouteOriginId] = useState<number | string | null>(null);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0); // 0 = Principal, 1 = Alternativa
@@ -237,6 +245,20 @@ useEffect(() => {
       }
     };
   }, []);
+
+const clusteredAlerts = useMemo(() => {
+    const grouped: { [key: string]: RoadAlert[] } = {};
+    
+    // 1. Agrupa por posição
+    mapAlerts.forEach(alert => {
+      const key = `${alert.lat.toFixed(4)},${alert.lng.toFixed(4)}`;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(alert);
+    });
+
+    // 2. Retorna array de grupos
+    return Object.values(grouped);
+  }, [mapAlerts]);
 
 
   // Busca/Processa propriedades (SÓ dados básicos, SEM processar boundary)
@@ -680,6 +702,62 @@ const handleGlobalSearchSelection = (property: Property) => {
   const cancelDrawing = () => { /* ... (código igual anterior) ... */ };
   const handleCancelConfirmation = () => { /* ... (código igual anterior) ... */ };
 
+  const fetchAlerts = useCallback(async () => {
+    if (!currentRegion) return;
+    
+    try {
+      const response = await axios.get(`${API_URL}/alerts`, {
+        params: { 
+          lat: currentRegion.latitude, 
+          lng: currentRegion.longitude,
+          radius: 50 // Raio de 50km
+        }
+      });
+      setMapAlerts(response.data);
+    } catch (error) {
+      console.error("Erro ao buscar alertas:", error);
+    }
+  }, [currentRegion]);
+
+  // Polling: Busca alertas a cada 30 segundos se estiver focado
+  useEffect(() => {
+    if (isFocused) {
+      fetchAlerts(); // Busca inicial
+      const interval = setInterval(fetchAlerts, 30 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [isFocused, fetchAlerts]);
+
+  const handleReportAlert = async (type: AlertType) => {
+    if (!userLocation) {
+      Alert.alert("Erro", "Localização desconhecida.");
+      return;
+    }
+
+    setIsReporting(true);
+    try {
+      await axios.post(`${API_URL}/alerts`, {
+        lat: userLocation.latitude,
+        lng: userLocation.longitude,
+        type
+      });
+      
+      Alert.alert("Obrigado!", "Seu alerta foi reportado para outros motoristas.");
+      setIsAlertModalVisible(false);
+      fetchAlerts(); 
+    } catch (error: any) {
+      // --- TRATAMENTO DE ERRO ESPECÍFICO (409) ---
+      if (error.response && error.response.status === 409) {
+        Alert.alert("Alerta Existente", "Alguém já reportou este problema neste local recentemente. Obrigado por confirmar!");
+        setIsAlertModalVisible(false); // Fecha o modal mesmo assim, pois a intenção foi válida
+      } else {
+        Alert.alert("Erro", "Não foi possível enviar o alerta. Tente novamente.");
+      }
+    } finally {
+      setIsReporting(false);
+    }
+  };
+
   // ----- Renderização -----
   return (
     <View style={styles.container}>
@@ -888,10 +966,9 @@ const handleGlobalSearchSelection = (property: Property) => {
             />
           );
         })}
-
-
       </MapView>
-{/* --- BARRA DE PESQUISA FLUTUANTE (Atualizada com Cores) --- */}
+
+      {/* --- BARRA DE PESQUISA FLUTUANTE (GLOBAL) --- */}
     {!isRouteListVisible && routes.length === 0 && (
       <View style={styles.searchBarContainer}>
         <View style={styles.searchBarInputContainer}>
@@ -919,25 +996,23 @@ const handleGlobalSearchSelection = (property: Property) => {
         {isGlobalSearchFocused && globalSearchResults.length > 0 && (
           <View style={styles.searchResultsContainer}>
             <FlatList
-              data={globalSearchResults}
+              data={globalSearchResults} // Usa a lista que já tem paginação no useMemo
               keyExtractor={(item) => String(item.id)}
               keyboardShouldPersistTaps="handled"
-
-              // --- 1. PAGINAÇÃO (Props da FlatList) ---
+              
+              // 1. Paginação Infinita na Barra
               onEndReached={() => setListLimit(prev => prev + 20)} 
               onEndReachedThreshold={0.5} 
               
-              // --- 2. LOADING NO RODAPÉ (Prop da FlatList) ---
+              // 2. Loading no final
               ListFooterComponent={
-                // Verifica se tem mais itens para carregar
                 globalSearchResults.length >= listLimit ? (
                   <ActivityIndicator size="small" color="#999" style={{ marginVertical: 10 }} />
                 ) : null
               }
 
-              // --- 3. RENDERIZAÇÃO DE CADA ITEM ---
+              // 3. Renderização dos Itens
               renderItem={({ item }) => {
-                // Lógica visual (cor e ícone)
                 const isMine = userPropertyIds.has(item.id);
                 const iconColor = isMine ? '#2196F3' : '#4CAF50';
                 const iconName = isMine ? "home" : "map-marker";
@@ -945,23 +1020,18 @@ const handleGlobalSearchSelection = (property: Property) => {
                 return (
                   <Pressable
                     style={styles.searchResultItem}
-                    // Ao clicar, apenas foca no mapa
                     onPress={() => handleGlobalSearchSelection(item)}
                   >
-                    {/* Ícone com fundo colorido dinâmico */}
                     <View style={[styles.searchResultIcon, { backgroundColor: iconColor }]}>
                       <FontAwesome name={iconName} size={16} color="#FFF" />
                     </View>
                     
-                    {/* Textos: Nome e Detalhe */}
                     <View style={{ flex: 1 }}>
                       <Text style={styles.searchResultTitle}>{item.nome_propriedade}</Text>
                       <Text style={styles.searchResultSubtitle}>
                         {isMine ? "Minha Propriedade" : item.car_code}
                       </Text>
                     </View>
-
-                    {/* Ícone de lupa */}
                     <FontAwesome name="search" size={14} color="#ccc" />
                   </Pressable>
                 );
@@ -971,7 +1041,7 @@ const handleGlobalSearchSelection = (property: Property) => {
         )}
       </View>
     )}
-
+    
       {/* --- 1. PAINEL DE AÇÃO (Aparece ao clicar num marcador) --- */}
       {selectedMarkerId && routes.length === 0 && (
   <View style={styles.actionPanel}>
@@ -1117,6 +1187,15 @@ const handleGlobalSearchSelection = (property: Property) => {
         {/* Substitui o Text por um Ícone */}
         <FontAwesome name="location-arrow" size={24} color="white" />
       </Pressable>
+      
+      {routes.length > 0 && (
+        <Pressable 
+          style={[styles.gpsButton, { bottom: 110, backgroundColor: '#FFC107' }]} // Acima do botão GPS e Amarelo
+          onPress={() => setIsAlertModalVisible(true)}
+        >
+          <FontAwesome name="exclamation-triangle" size={22} color="black" />
+        </Pressable>
+      )}
 
       {/* --- NOVO: Botões de Filtro --- */}
       {!isGuest && routes.length === 0 && (
@@ -1323,8 +1402,99 @@ const handleGlobalSearchSelection = (property: Property) => {
           </View>
         </View>
       </Modal>
+      <Modal
+        visible={isAlertModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsAlertModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { width: '85%' }]}>
+            <Text style={styles.modalTitle}>Relatar Problema na Via</Text>
+            <Text style={{marginBottom: 20, color: '#666', textAlign: 'center'}}>
+              O que você encontrou? Isso ajudará outros motoristas.
+            </Text>
+
+            {/* Lista de Opções */}
+            <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between'}}>
+              {(Object.keys(ALERT_CONFIG) as AlertType[]).map((type) => (
+                <Pressable
+                  key={type}
+                  style={{
+                    width: '48%', 
+                    backgroundColor: '#f9f9f9', 
+                    padding: 15, 
+                    borderRadius: 8, 
+                    marginBottom: 10,
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: '#eee'
+                  }}
+                  onPress={() => handleReportAlert(type)}
+                  disabled={isReporting}
+                >
+                  <FontAwesome name={ALERT_CONFIG[type].icon as any} size={24} color={ALERT_CONFIG[type].color} style={{marginBottom: 8}} />
+                  <Text style={{fontSize: 12, fontWeight: 'bold', color: '#333'}}>{ALERT_CONFIG[type].label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Pressable 
+              style={[styles.button, styles.cancelButton, { marginTop: 10, width: '100%' }]} 
+              onPress={() => setIsAlertModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={!!selectedClusterAlerts}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setSelectedClusterAlerts(null)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { maxHeight: '60%' }]}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginBottom: 10}}>
+              <Text style={styles.modalTitle}>Alertas neste local</Text>
+              <Pressable onPress={() => setSelectedClusterAlerts(null)}>
+                <FontAwesome name="times" size={24} color="#666" />
+              </Pressable>
+            </View>
+
+            <FlatList
+              data={selectedClusterAlerts || []}
+              keyExtractor={(item) => item.id}
+              style={{width: '100%'}}
+              renderItem={({ item }) => {
+                const config = ALERT_CONFIG[item.type];
+                const minutesAgo = Math.round((Date.now() - item.timestamp) / 60000);
+                return (
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center', 
+                    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee'
+                  }}>
+                    <View style={{
+                      width: 40, height: 40, borderRadius: 20, 
+                      backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center', marginRight: 12
+                    }}>
+                      <FontAwesome name={config.icon as any} size={20} color={config.color} />
+                    </View>
+                    <View>
+                      <Text style={{fontWeight: 'bold', fontSize: 16, color: '#333'}}>{config.label}</Text>
+                      <Text style={{color: '#666', fontSize: 12}}>Reportado há {minutesAgo} min</Text>
+                    </View>
+                  </View>
+                );
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
+  
 }
 
 // --- Styles ---

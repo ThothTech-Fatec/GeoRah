@@ -6,6 +6,7 @@ import { routeEngine } from '../services/routeEngine';
 import RoadModel from '../models/Road';
 import { getWeatherAlert } from '../services/weatherService';
 import mysql from 'mysql2';
+import { alertStore, AlertType } from '../services/alertStore';
 import bcrypt from 'bcryptjs';
 import cors from 'cors';
 import { protect } from '../middleware/authMiddleware';
@@ -782,6 +783,46 @@ async function snapToNearestRoad(lat: number, lng: number): Promise<{ lat: numbe
   }
 }
 
+app.post('/alerts', (req: Request, res: Response) => {
+  const { lat, lng, type } = req.body;
+
+  if (!lat || !lng || !type) {
+    return res.status(400).json({ message: 'Dados incompletos.' });
+  }
+
+  if (alertStore.hasNearbyAlert(Number(lat), Number(lng), type)) {
+    console.log(`🚫 Alerta rejeitado (Duplicado/Muito próximo): ${type}`);
+    // Retornamos 409 (Conflict) para o frontend saber que já existe
+    return res.status(409).json({ message: 'Este alerta já foi reportado recentemente neste local.' });
+  }
+
+  try {
+    const newAlert = alertStore.addAlert(Number(lat), Number(lng), type);
+    return res.status(201).json(newAlert);
+  } catch (error) {
+    console.error("Erro ao criar alerta:", error);
+    return res.status(500).json({ message: 'Erro interno.' });
+  }
+});
+
+app.get('/alerts', (req: Request, res: Response) => {
+  const { lat, lng, radius } = req.query;
+
+  if (!lat || !lng) {
+    return res.status(400).json({ message: 'Latitude e Longitude são obrigatórias para buscar alertas.' });
+  }
+
+  try {
+    // Raio padrão de 50km se não for informado
+    const searchRadius = radius ? Number(radius) : 50;
+    
+    const alerts = alertStore.getNearbyAlerts(Number(lat), Number(lng), searchRadius);
+    return res.status(200).json(alerts);
+  } catch (error) {
+    console.error("Erro ao buscar alertas:", error);
+    return res.status(500).json({ message: 'Erro ao buscar alertas.' });
+  }
+});
 
 // ERRO GLOBAL
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
