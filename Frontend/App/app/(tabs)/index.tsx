@@ -171,30 +171,62 @@ export default function MapScreen() {
     return userPropertyIds.has(Number(selectedMarkerId));
   }, [selectedMarkerId, userPropertyIds]);
 
-  useEffect(() => {
-    (async () => {
-      console.log("Requesting location permissions...");
+useEffect(() => {
+    let locationSubscription: Location.LocationSubscription | null = null;
+
+    const startWatching = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permissão negada', 'Permita o uso da localização para centralizar o mapa.');
-        console.log("Location permission denied."); return;
+        Alert.alert('Permissão negada', 'Precisamos da sua localização.');
+        return;
       }
-      console.log("Location permission granted.");
+
       try {
-        const location = await Location.getCurrentPositionAsync({});
-        const coords = { latitude: location.coords.latitude, longitude: location.coords.longitude };
-        console.log("User location:", coords); setUserLocation(coords);
-        if (mapViewRef.current) {
-          console.log("Animating map to user location...");
-          mapViewRef.current.animateToRegion({ ...coords, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 1000);
-        }
-      } catch (error) { console.error("Error getting location:", error); }
-    })();
+        // --- A MÁGICA ACONTECE AQUI ---
+        // watchPositionAsync fica "ouvindo" o GPS.
+        // Toda vez que você andar, ele roda a função interna.
+        locationSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High, // Alta precisão
+            timeInterval: 2000,               // Atualiza a cada 2 segundos (mínimo)
+            distanceInterval: 2,              // Ou se andar 2 metros
+          },
+          (location) => {
+            // Essa função roda toda vez que o GPS muda
+            const coords = { 
+              latitude: location.coords.latitude, 
+              longitude: location.coords.longitude 
+            };
+            
+            console.log("📍 Nova posição detectada:", coords);
+            setUserLocation(coords);
+
+            // Opcional: Se quiser que o mapa SIGA você (centralize automático), descomente abaixo.
+            // Mas cuidado: isso impede o usuário de arrastar o mapa para o lado.
+            /* if (mapViewRef.current) {
+               mapViewRef.current.animateToRegion({ ...coords, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 500);
+            } 
+            */
+          }
+        );
+      } catch (error) {
+        console.log("Erro no WatchPosition:", error);
+      }
+    };
+
+    startWatching();
+
+    // --- LIMPEZA ---
+    // Muito importante: Quando você sai da tela, paramos de usar o GPS para economizar bateria
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
   }, []);
 
 
   // Busca/Processa propriedades (SÓ dados básicos, SEM processar boundary)
-  // index.tsx
 
   // --- NOVAS FUNÇÕES DE FETCH OTIMIZADAS ---
 
@@ -563,7 +595,15 @@ const handleTraceRoute = async (targetId: number) => {
             }}
           />
         )}
-
+        {userLocation && (
+          <Marker
+            coordinate={userLocation}
+            anchor={{ x: 0.5, y: 0.5 }} // Mantém o centro exato
+            zIndex={999}
+          >
+            <View style={styles.userLocationDot} />
+          </Marker>
+        )}
         {/* Marcadores e Polígonos (Filtrados por ZOOM e VIEWPORT) */}
         {/* CORREÇÃO: Adicionada condição de zoom para os MARCADORES */}
         {currentRegion && (routes.length > 0 || currentRegion.latitudeDelta < MARKER_VISIBILITY_ZOOM_THRESHOLD) && (
@@ -1189,6 +1229,41 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 110, alignSelf: 'center',
     backgroundColor: 'rgba(0,0,0,0.7)', padding: 10, borderRadius: 20,
     flexDirection: 'row', alignItems: 'center', zIndex: 99
-  }
+  },
+
+  // --- NOVOS ESTILOS PARA O MARCADOR DA LOCALIZAÇÃO ATUAL DO USER ---
+  userLocationContainer: {
+    width: 60, // Área total do toque/visualização
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userLocationRing: {
+    position: 'absolute',
+    width: 40, // Tamanho do "brilho" em volta
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 123, 255, 0.25)', // Azul bem transparente
+    zIndex: 1,
+  },
+
+// O ponto central sólido (igual ao anterior, mas sem posição absoluta)
+userLocationDot: {
+  width: 18,
+  height: 18,
+  borderRadius: 9,
+  backgroundColor: '#007BFF', // Azul sólido
+  borderWidth: 3,
+  borderColor: 'white', // Borda branca
+  
+  // Sombra para dar um "pop" (opcional, mas fica bonito)
+  elevation: 4, // Android
+  shadowColor: "#000", // iOS
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.3,
+  shadowRadius: 3,
+},
 });
+
+
 

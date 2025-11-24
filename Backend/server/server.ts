@@ -23,7 +23,7 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("A chave JWT_SECRET não está definida no arquivo .env");
 
-const MONGO_URI = "mongodb://localhost:27017/georah_mongo";
+const MONGO_URI = "mongodb://localhost:27017/georah";
 
 mongoose.connect(MONGO_URI)
   .then(async () => {
