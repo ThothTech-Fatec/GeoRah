@@ -10,6 +10,7 @@ import { useProperties, Property } from '../../context/PropertyContext';
 import { useMap } from '../../context/MapContext';
 import { useIsFocused } from '@react-navigation/native';
 import axios from 'axios';
+import { useFocusEffect } from '@react-navigation/native'; // <--- Importante
 
 const API_URL = "http://10.0.2.2:3000"; // Ou IP correto
 const API_KEY = Constants.expoConfig?.extra?.googleApiKey; // Garanta que está configurada
@@ -261,31 +262,44 @@ const clusteredAlerts = useMemo(() => {
   }, [mapAlerts]);
 
 
-  // Busca/Processa propriedades (SÓ dados básicos, SEM processar boundary)
+
 
   // --- NOVAS FUNÇÕES DE FETCH OTIMIZADAS ---
 
-  // 1. Busca todos os MARCADORES públicos (leve) - SÓ UMA VEZ
-  const fetchAllPublicMarkers = useCallback(async () => {
-    // Usa o Ref para garantir que só seja chamado uma vez
-    if (initialMarkerFetchDone.current) return;
+// 1. Busca todos os MARCADORES públicos
+  const fetchAllPublicMarkers = useCallback(async (force: boolean = false) => {
+    // Se NÃO for forçado E já tiver feito o fetch inicial, para aqui.
+    if (!force && initialMarkerFetchDone.current) return;
+    
     initialMarkerFetchDone.current = true;
 
-    console.log("Buscando TODOS os marcadores públicos (leve)...");
+    console.log("Buscando TODOS os marcadores públicos...");
     setIsLoading(true);
     try {
-      // Chama a nova ROTA 1
       const response = await axios.get(`${API_URL}/properties/public/markers`);
       if (response.data && Array.isArray(response.data)) {
-        setPublicPropertiesCache(response.data); // Salva no cache
+        setPublicPropertiesCache(response.data); // Atualiza o cache com os nomes novos
       }
     } catch (error) {
       console.error("Erro ao buscar marcadores públicos:", error);
-      Alert.alert("Erro", "Não foi possível carregar os marcadores públicos.");
     } finally {
       setIsLoading(false);
     }
-  }, []); // Array de dependências VAZIO garante que a função é estável
+  }, []);
+
+  // --- ATUALIZAÇÃO AUTOMÁTICA AO VOLTAR PARA A TELA ---
+  useFocusEffect(
+    useCallback(() => {
+      // 1. Atualiza "Minhas Propriedades" (Contexto)
+      fetchProperties(); 
+
+      // 2. Atualiza "Todas as Propriedades" (Cache Público)
+      // Passamos 'true' para FORÇAR a atualização ignorando a trava
+      fetchAllPublicMarkers(true); 
+      
+      console.log("🔄 Tela focada: Dados atualizados.");
+    }, [fetchProperties, fetchAllPublicMarkers])
+  );
 
   // 2. Busca os POLÍGONOS para a viewport (sob demanda)
   const fetchViewportBoundaries = useCallback(async (region: Region | null) => {
@@ -776,6 +790,69 @@ const handleGlobalSearchSelection = (property: Property) => {
           }
         }}
       >
+
+{/* --- RENDERIZAÇÃO DOS ALERTAS (SÓ NA ROTA) --- */}
+        {routes.length > 0 && clusteredAlerts.map((cluster, index) => {
+          const mainAlert = cluster[0];
+          const config = ALERT_CONFIG[mainAlert.type];
+          const count = cluster.length;
+
+          return (
+            <Marker
+              key={`alert-${index}`}
+              coordinate={{ latitude: mainAlert.lat, longitude: mainAlert.lng }}
+              zIndex={200} 
+              anchor={{ x: 0.5, y: 0.5 }} 
+              onPress={() => setSelectedClusterAlerts(cluster)}
+              tracksViewChanges={true}
+            >
+              {/* Container transparente para alinhar */}
+              <View style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                
+                {/* 1. Ícone Principal */}
+                <View style={{
+                  width: 32, 
+                  height: 32, 
+                  borderRadius: 16,
+                  backgroundColor: config.color,
+                  justifyContent: 'center', 
+                  alignItems: 'center',
+                  borderWidth: 2, 
+                  borderColor: 'white', 
+                  elevation: 2, // Elevação menor (fica atrás)
+                  shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 2,
+                  zIndex: 1
+                }}>
+                  <FontAwesome name={config.icon as any} size={14} color="white" />
+                </View>
+
+                {/* 2. Badge Contador (CORRIGIDO) */}
+                {count > 1 && (
+                  <View style={{
+                    position: 'absolute', 
+                    top: -4,   // Sobe um pouco para fora do ícone
+                    right: -4, // Vai para a direita para fora do ícone
+                    backgroundColor: '#D32F2F', // Vermelho vivo
+                    borderRadius: 10, // Bem redondo
+                    minWidth: 22, // Largura mínima garantida
+                    height: 20, 
+                    justifyContent: 'center', 
+                    alignItems: 'center',
+                    borderWidth: 2, 
+                    borderColor: 'white',
+                    elevation: 10, // <--- O SEGREDO: Elevação bem maior que a do ícone
+                    zIndex: 10     // <--- Garante que fica na frente no iOS
+                  }}>
+                    <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                      {count}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Marker>
+          );
+        })}
+        
         {/* Marcador azul (nova propriedade) */}
         {clickedLocation && !isDrawing && (
           <Marker
