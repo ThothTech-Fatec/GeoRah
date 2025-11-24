@@ -49,7 +49,7 @@ function formatCPF(cpfRaw?: string | null): string {
   if (!cpfRaw) return '---';
   const digits = String(cpfRaw).replace(/\D/g, '').padStart(0, '0').slice(0, 11);
   if (digits.length !== 11) return cpfRaw; // retorna original se não tiver 11 dígitos
-  return `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9,11)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9, 11)}`;
 }
 
 /**
@@ -226,30 +226,30 @@ const hashAsync = util.promisify(bcrypt.hash);
 
 // REGISTRO DE USUÁRIO (COM LÓGICA DE ASSOCIAÇÃO/REIVINDICAÇÃO DE CPF)
 app.post('/register', async (req: Request, res: Response) => {
-  // 1. Receber TODOS os campos do frontend
-  const { nome_completo, email, senha, cpf } = req.body;
+  // 1. Receber TODOS os campos do frontend
+  const { nome_completo, email, senha, cpf } = req.body;
 
-  // Validação
-  if (!nome_completo || !email || !senha || !cpf || cpf.length !== 14) {
-    return res.status(400).json({ message: 'Todos os campos são obrigatórios e o CPF deve ter 11 dígitos.' });
-  }
+  // Validação
+  if (!nome_completo || !email || !senha || !cpf || cpf.length !== 14) {
+    return res.status(400).json({ message: 'Todos os campos são obrigatórios e o CPF deve ter 11 dígitos.' });
+  }
 
-  try {
-    // 2. Verificar APENAS o CPF
+  try {
+    // 2. Verificar APENAS o CPF
     // CORREÇÃO: Usa 'await dbQuery' (a versão promise) em vez de db.execute
-    const existingUsers = await dbQuery('SELECT * FROM users WHERE cpf = ?', [cpf]) as any[];
+    const existingUsers = await dbQuery('SELECT * FROM users WHERE cpf = ?', [cpf]) as any[];
 
-    // CORREÇÃO: Usa 'await hashAsync'
-    const hash = await hashAsync(senha, 10);
+    // CORREÇÃO: Usa 'await hashAsync'
+    const hash = await hashAsync(senha, 10);
 
-    if (existingUsers && existingUsers.length > 0) {
-      // CPF Encontrado
-      const user = existingUsers[0];
-      const placeholderEmail = `${cpf}@georah.com`;
-        
-      if (user.email === placeholderEmail) {
-        // Cenário 1: É um placeholder. Reivindica a conta.
-        try {
+    if (existingUsers && existingUsers.length > 0) {
+      // CPF Encontrado
+      const user = existingUsers[0];
+      const placeholderEmail = `${cpf}@georah.com`;
+
+      if (user.email === placeholderEmail) {
+        // Cenário 1: É um placeholder. Reivindica a conta.
+        try {
           // CORREÇÃO: Usa 'await dbQuery'
           await dbQuery(
             'UPDATE users SET nome_completo = ?, email = ?, senha = ? WHERE cpf = ?',
@@ -257,24 +257,24 @@ app.post('/register', async (req: Request, res: Response) => {
           );
           return res.status(200).json({ message: 'Conta existente atualizada com sucesso!' });
         } catch (error: any) {
-           if (error.code === 'ER_DUP_ENTRY' && error.message.includes('email')) {
-             return res.status(409).json({ message: 'Este CPF é seu, mas o email que você digitou já está sendo usado por outra conta.' });
-           }
-           throw error; // Lança outros erros
+          if (error.code === 'ER_DUP_ENTRY' && error.message.includes('email')) {
+            return res.status(409).json({ message: 'Este CPF é seu, mas o email que você digitou já está sendo usado por outra conta.' });
+          }
+          throw error; // Lança outros erros
         }
 
-      } else {
-        // Cenário 2: É um usuário real. CPF já cadastrado.
-        return res.status(409).json({ message: 'Este CPF já está cadastrado em outra conta.' });
-      }
-    }
+      } else {
+        // Cenário 2: É um usuário real. CPF já cadastrado.
+        return res.status(409).json({ message: 'Este CPF já está cadastrado em outra conta.' });
+      }
+    }
 
-    // Cenário 3: Usuário 100% novo (CPF não encontrado)
+    // Cenário 3: Usuário 100% novo (CPF não encontrado)
     // CORREÇÃO: Usa 'await dbQuery'
-    const insertResult = await dbQuery(
-      'INSERT INTO users (nome_completo, email, cpf, senha) VALUES (?, ?, ?, ?)',
-      [nome_completo, email, cpf, hash]
-    ) as any; // 'any' para insertId
+    const insertResult = await dbQuery(
+      'INSERT INTO users (nome_completo, email, cpf, senha) VALUES (?, ?, ?, ?)',
+      [nome_completo, email, cpf, hash]
+    ) as any; // 'any' para insertId
 
     const newUserId = insertResult.insertId;
 
@@ -287,22 +287,22 @@ app.post('/register', async (req: Request, res: Response) => {
     ) as any; // 'any' para affectedRows
 
     if (updatePropsResult.affectedRows > 0) {
-       console.log(`Usuário ${newUserId} associado a ${updatePropsResult.affectedRows} propriedades.`);
-       return res.status(201).json({ message: 'Usuário cadastrado e propriedades existentes associadas!' });
+      console.log(`Usuário ${newUserId} associado a ${updatePropsResult.affectedRows} propriedades.`);
+      return res.status(201).json({ message: 'Usuário cadastrado e propriedades existentes associadas!' });
     } else {
-       return res.status(201).json({ message: 'Usuário cadastrado com sucesso!' });
+      return res.status(201).json({ message: 'Usuário cadastrado com sucesso!' });
     }
 
-  } catch (error: any) {
-    // Lida com erros de 'INSERT' (email duplicado)
-    if (error.code === 'ER_DUP_ENTRY') {
-      if (error.message.includes('email')) {
-        return res.status(409).json({ message: 'Este email já está cadastrado.' });
-      }
-    }
-    console.error('Erro no /register:', error);
-    return res.status(500).json({ message: 'Erro interno ao registrar usuário.' });
-  }
+  } catch (error: any) {
+    // Lida com erros de 'INSERT' (email duplicado)
+    if (error.code === 'ER_DUP_ENTRY') {
+      if (error.message.includes('email')) {
+        return res.status(409).json({ message: 'Este email já está cadastrado.' });
+      }
+    }
+    console.error('Erro no /register:', error);
+    return res.status(500).json({ message: 'Erro interno ao registrar usuário.' });
+  }
 });
 
 // REGISTRO DE PROPRIEDADE (envia certificado apenas aqui)
@@ -356,8 +356,8 @@ app.delete('/properties/:id', protect, (req: any, res: Response) => {
   const userId = req.user.id;
 
   db.query(
-    'DELETE FROM properties WHERE id = ? AND user_id = ?', 
-    [propertyId, userId], 
+    'DELETE FROM properties WHERE id = ? AND user_id = ?',
+    [propertyId, userId],
     (err, results: any) => {
       if (err) {
         console.error(err);
@@ -403,7 +403,7 @@ app.patch('/properties/:id/location', protect, (req: any, res: Response) => {
 
   // 2. Atualiza no banco APENAS se o ID e o USER_ID corresponderem
   const query = 'UPDATE properties SET latitude = ?, longitude = ? WHERE id = ? AND user_id = ?';
-  
+
   db.query(query, [latitude, longitude, propertyId, userId], (err, results: any) => {
     if (err) {
       console.error("Erro ao atualizar localização:", err);
@@ -453,7 +453,7 @@ app.get('/properties/:id/certificate', protect, (req: any, res: Response) => {
   const query = `
     SELECT 
       p.car_code, p.nome_propriedade, p.latitude, p.longitude, p.plus_code,
-      u.nome_completo, u.email, u.cpf
+      u.nome_completo, u.email
     FROM properties p
     JOIN users u ON p.user_id = u.id
     WHERE p.id = ? AND p.user_id = ? 
@@ -470,8 +470,11 @@ app.get('/properties/:id/certificate', protect, (req: any, res: Response) => {
 
     const data = results[0];
 
+    const cpfDoUsuario = data.email && data.email.includes('@')
+      ? data.email.split('@')[0]
+      : null;
+
     try {
-      // Chama a função para gerar o PDF e enviá-lo na resposta
       await gerarCertificadoPDF(
         res,
         data.nome_completo,
@@ -480,8 +483,8 @@ app.get('/properties/:id/certificate', protect, (req: any, res: Response) => {
         data.nome_propriedade,
         Number(data.latitude),
         Number(data.longitude),
-        data.plus_code,       // Pode ser null
-        data.cpf              // <-- CPF do proprietário
+        data.plus_code,
+        cpfDoUsuario // 3. Passamos o CPF extraído manualmente
       );
       // A função gerarCertificadoPDF cuida de res.end()
     } catch (pdfError) {
@@ -565,9 +568,9 @@ app.get('/properties/public/boundaries', (req: Request, res: Response) => {
   `;
 
   const values = [
-    parseFloat(minLat as string), 
-    parseFloat(maxLat as string), 
-    parseFloat(minLng as string), 
+    parseFloat(minLat as string),
+    parseFloat(maxLat as string),
+    parseFloat(minLng as string),
     parseFloat(maxLng as string)
   ];
 
@@ -613,17 +616,17 @@ app.get('/routes/custom', protect, async (req: any, res: Response) => {
     }
 
     const weatherAlert = await getWeatherAlert(Number(destProp.latitude), Number(destProp.longitude));
-    
+
     if (weatherAlert) {
-       console.log(`🌧️ Alerta de Clima detectado: ${weatherAlert.title}`);
+      console.log(`🌧️ Alerta de Clima detectado: ${weatherAlert.title}`);
     }
 
     // Monta a resposta injetando o alerta (se houver) nas rotas
     const responsePayload = {
       message: 'Cálculo realizado com sucesso.',
-      main: { ...result.main, alert: weatherAlert }, 
-      alternative: result.alternative 
-        ? { ...result.alternative, alert: weatherAlert } 
+      main: { ...result.main, alert: weatherAlert },
+      alternative: result.alternative
+        ? { ...result.alternative, alert: weatherAlert }
         : null
     };
 
@@ -632,7 +635,7 @@ app.get('/routes/custom', protect, async (req: any, res: Response) => {
   } catch (error: any) {
     console.error("Erro ao calcular rota customizada:", error);
     if (error.message && (error.message.includes('Estrada não encontrada') || error.message.includes('estrada próxima'))) {
-        return res.status(400).json({ message: error.message });
+      return res.status(400).json({ message: error.message });
     }
     return res.status(500).json({ message: 'Erro interno ao calcular rota.' });
   }
@@ -644,52 +647,52 @@ app.get('/routes/custom', protect, async (req: any, res: Response) => {
 const verificationCodes: { [email: string]: { code: string; timestamp: number } } = {};
 
 // Constante para 10 minutos em milissegundos
-const CODE_EXPIRATION_MS = 10 * 60 * 1000; 
+const CODE_EXPIRATION_MS = 10 * 60 * 1000;
 
 // Configuração do Nodemailer
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,  
-    pass: process.env.EMAIL_PASS,  
-  },
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
 });
 
 app.post('/send-verification', async (req: Request, res: Response) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ message: 'E-mail é obrigatório' });
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: 'E-mail é obrigatório' });
 
-  // Gerar código aleatório de 6 dígitos
-  const code = crypto.randomInt(100000, 999999).toString();
+  // Gerar código aleatório de 6 dígitos
+  const code = crypto.randomInt(100000, 999999).toString();
 
-  // 2. Salvar código e timestamp
-  verificationCodes[email] = {
+  // 2. Salvar código e timestamp
+  verificationCodes[email] = {
     code,
-    timestamp: Date.now() 
+    timestamp: Date.now()
   };
 
-  try {
-    await transporter.sendMail({
-      from: `"GeoRah" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'Código de Verificação GeoRah',
-      text: `Seu código de verificação é: ${code}`,
-      html: `<p>Seu código de verificação é: <b>${code}</b>. Este código expira em 10 minutos.</p>`, // (Adicionei um aviso no e-mail)
-    });
+  try {
+    await transporter.sendMail({
+      from: `"GeoRah" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Código de Verificação GeoRah',
+      text: `Seu código de verificação é: ${code}`,
+      html: `<p>Seu código de verificação é: <b>${code}</b>. Este código expira em 10 minutos.</p>`, // (Adicionei um aviso no e-mail)
+    });
 
-    return res.status(200).json({ message: 'Código enviado com sucesso' });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Erro ao enviar o código' });
-  }
+    return res.status(200).json({ message: 'Código enviado com sucesso' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Erro ao enviar o código' });
+  }
 });
 
 app.post('/verify-code', (req: Request, res: Response) => {
-  const { email, code } = req.body;
-  if (!email || !code) return res.status(400).json({ message: 'Email e código são obrigatórios' });
+  const { email, code } = req.body;
+  if (!email || !code) return res.status(400).json({ message: 'Email e código são obrigatórios' });
 
-  const entry = verificationCodes[email];
-  if (!entry) return res.status(400).json({ message: 'Nenhum código solicitado para este e-mail' });
+  const entry = verificationCodes[email];
+  if (!entry) return res.status(400).json({ message: 'Nenhum código solicitado para este e-mail' });
 
   // 3. Lógica de verificação de expiração
   const now = Date.now();
@@ -702,20 +705,20 @@ app.post('/verify-code', (req: Request, res: Response) => {
   }
   // Fim da lógica de expiração
 
-  if (entry.code === code) {
-    // Código válido: pode registrar o usuário
-    delete verificationCodes[email]; // remove após verificação
-    return res.status(200).json({ message: 'Código verificado com sucesso' });
-  }
+  if (entry.code === code) {
+    // Código válido: pode registrar o usuário
+    delete verificationCodes[email]; // remove após verificação
+    return res.status(200).json({ message: 'Código verificado com sucesso' });
+  }
 
-  return res.status(400).json({ message: 'Código inválido' });
+  return res.status(400).json({ message: 'Código inválido' });
 });
 
 
 // ERRO GLOBAL
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('Erro inesperado:', err);
-  res.status(500).json({ message: 'Ocorreu um erro inesperado.' });
+  console.error('Erro inesperado:', err);
+  res.status(500).json({ message: 'Ocorreu um erro inesperado.' });
 });
 
 
