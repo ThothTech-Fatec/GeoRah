@@ -136,17 +136,29 @@ export default function PropertiesScreen() {
         />
       )}
 
-      {/* Modal para editar o nome */}
+{/* Modal para editar o nome */}
       <Modal visible={editModalVisible} animationType="slide" transparent>
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Editar Nome</Text>
+            
             <TextInput 
               style={styles.input} 
               value={newName} 
               onChangeText={setNewName} 
               placeholder="Digite o novo nome" 
             />
+
+            {/* --- NOVO AVISO SOBRE A LOCALIZAÇÃO --- */}
+            <View style={styles.noteContainer}>
+              <FontAwesome name="info-circle" size={16} color="#555" style={{ marginBottom: 5 }} />
+              <Text style={styles.noteText}>
+                Dica: Para mudar o <Text style={{fontWeight: 'bold'}}>ponto de entrada</Text>, 
+                vá ao mapa, pressione e segure o marcador desta propriedade e arraste para o local desejado.
+              </Text>
+            </View>
+            {/* -------------------------------------- */}
+
             <View style={styles.modalButtons}>
               <Pressable style={[styles.button, styles.saveButton]} onPress={handleSaveName}>
                 <Text style={styles.buttonText}>Salvar</Text>
@@ -182,4 +194,19 @@ const styles = StyleSheet.create({
   modalButtons: { flexDirection: 'row', justifyContent: 'flex-end' },
   saveButton: { backgroundColor: '#28a745', marginRight: 10 },
   cancelButton: { backgroundColor: '#6c757d' },
+  noteContainer: {
+    backgroundColor: '#f8f9fa', // Cinza bem clarinho
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    alignItems: 'center', // Centraliza o ícone e texto
+  },
+  noteText: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 18, // Melhora a leitura se quebrar linha
+  },
 });
