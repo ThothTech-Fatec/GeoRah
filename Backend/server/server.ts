@@ -15,6 +15,7 @@ import PDFDocument from 'pdfkit';
 import util from 'util';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
+import { getDistance, getNearestPointOnSegment } from '../utils/geo';
 
 const app = express();
 app.use(cors());
@@ -584,60 +585,74 @@ app.get('/properties/public/boundaries', (req: Request, res: Response) => {
 });
 
 app.get('/routes/custom', protect, async (req: any, res: Response) => {
-  const { originId, destinationId } = req.query;
+  const { originId, destinationId, userLat, userLng } = req.query;
 
-  if (!originId || !destinationId) {
-    return res.status(400).json({ message: 'Origem e destino são obrigatórios.' });
+  // Validação: Precisa de pelo menos 2 pontos
+  // Combinações válidas: (ID + ID) ou (ID + GPS)
+  const hasOrigin = originId || (userLat && userLng);
+  const hasDest = destinationId || (userLat && userLng);
+
+  if (!hasOrigin || !hasDest) {
+    return res.status(400).json({ message: 'Forneça Origem e Destino (ID ou GPS).' });
   }
 
   try {
-    // 1. Busca as coordenadas das propriedades no MySQL
-    const query = 'SELECT id, latitude, longitude FROM properties WHERE id IN (?, ?)';
-    const properties = await dbQuery(query, [originId, destinationId]) as any[];
+    let startCoords: { latitude: number, longitude: number };
+    let endCoords: { latitude: number, longitude: number };
 
-    const originProp = properties.find(p => p.id == originId);
-    const destProp = properties.find(p => p.id == destinationId);
-
-    if (!originProp || !destProp) {
-      return res.status(404).json({ message: 'Propriedades não encontradas.' });
+    // --- 1. RESOLVER ORIGEM ---
+    if (originId) {
+      // Origem é uma Propriedade
+      const result = await dbQuery('SELECT latitude, longitude FROM properties WHERE id = ?', [originId]);
+      if (!result.length) return res.status(404).json({ message: 'Origem não encontrada.' });
+      startCoords = { latitude: Number(result[0].latitude), longitude: Number(result[0].longitude) };
+    } else {
+      // Origem é GPS (Faz Snap)
+      const rawLat = parseFloat(userLat);
+      const rawLng = parseFloat(userLng);
+      const snapped = await snapToNearestRoad(rawLat, rawLng);
+      startCoords = snapped ? { latitude: snapped.lat, longitude: snapped.lng } : { latitude: rawLat, longitude: rawLng };
     }
 
-    console.log(`🗺️ Calculando rota de ${originId} para ${destinationId}...`);
+    // --- 2. RESOLVER DESTINO ---
+    if (destinationId) {
+      // Destino é uma Propriedade
+      const result = await dbQuery('SELECT latitude, longitude FROM properties WHERE id = ?', [destinationId]);
+      if (!result.length) return res.status(404).json({ message: 'Destino não encontrado.' });
+      endCoords = { latitude: Number(result[0].latitude), longitude: Number(result[0].longitude) };
+    } else {
+      // Destino é GPS (Faz Snap) -> NOVO CASO
+      // Se chegamos aqui, significa que originId existe, então userLat é o destino
+      const rawLat = parseFloat(userLat);
+      const rawLng = parseFloat(userLng);
+      const snapped = await snapToNearestRoad(rawLat, rawLng);
+      endCoords = snapped ? { latitude: snapped.lat, longitude: snapped.lng } : { latitude: rawLat, longitude: rawLng };
+    }
 
+    // --- 3. CALCULAR ROTA ---
     const result = routeEngine.calculateRouteWithAlternatives(
-      Number(originProp.latitude),
-      Number(originProp.longitude),
-      Number(destProp.latitude),
-      Number(destProp.longitude)
+      startCoords.latitude, startCoords.longitude,
+      endCoords.latitude, endCoords.longitude
     );
 
     if (!result || !result.main) {
-      return res.status(404).json({ message: 'Não foi possível encontrar um caminho entre estas propriedades.' });
+      return res.status(404).json({ message: 'Rota não encontrada.' });
     }
 
-    const weatherAlert = await getWeatherAlert(Number(destProp.latitude), Number(destProp.longitude));
+    // Pega o clima do destino final
+    const weatherAlert = await getWeatherAlert(endCoords.latitude, endCoords.longitude);
 
-    if (weatherAlert) {
-      console.log(`🌧️ Alerta de Clima detectado: ${weatherAlert.title}`);
-    }
-
-    // Monta a resposta injetando o alerta (se houver) nas rotas
     const responsePayload = {
-      message: 'Cálculo realizado com sucesso.',
+      message: 'Sucesso',
       main: { ...result.main, alert: weatherAlert },
-      alternative: result.alternative
-        ? { ...result.alternative, alert: weatherAlert }
-        : null
+      alternative: result.alternative ? { ...result.alternative, alert: weatherAlert } : null
     };
 
     return res.status(200).json(responsePayload);
 
   } catch (error: any) {
-    console.error("Erro ao calcular rota customizada:", error);
-    if (error.message && (error.message.includes('Estrada não encontrada') || error.message.includes('estrada próxima'))) {
-      return res.status(400).json({ message: error.message });
-    }
-    return res.status(500).json({ message: 'Erro interno ao calcular rota.' });
+    console.error("Erro rota:", error);
+    return res.status(500).json({ message: 'Erro interno.' });
   }
 });
 
@@ -713,6 +728,59 @@ app.post('/verify-code', (req: Request, res: Response) => {
 
   return res.status(400).json({ message: 'Código inválido' });
 });
+
+// Função para obter as coordenadas da estrada mais próxima
+
+async function snapToNearestRoad(lat: number, lng: number): Promise<{ lat: number, lng: number } | null> {
+  try {
+    // 1. Busca estradas num raio de 500 metros do usuário usando o MongoDB Geospatial
+    const roads = await RoadModel.find({
+      geometry: {
+        $near: {
+          $geometry: { type: "Point", coordinates: [lng, lat] }, // Mongo usa [lng, lat]
+          $maxDistance: 500 // Raio de busca em metros
+        }
+      }
+    }).limit(5); // Pega as 5 mais próximas para verificar geometria fina
+
+    if (!roads || roads.length === 0) return null;
+
+    let bestPoint = { lat, lng };
+    let minDistance = Infinity;
+
+    // 2. Itera sobre as estradas encontradas para achar o segmento exato
+    for (const road of roads) {
+      const coords = road.geometry.coordinates; // Array de arrays [[lng, lat], [lng, lat]]
+      
+      // Suporte para LineString simples (array de pontos) ou MultiLineString (array de arrays de pontos)
+      // Vou assumir LineString simples baseado no seu RoadModel, mas se for Multi, precisaria de mais um loop.
+      const points = (road.geometry.type === 'MultiLineString') ? coords.flat() : coords;
+
+      for (let i = 0; i < points.length - 1; i++) {
+        const p1 = points[i];   // [lng, lat]
+        const p2 = points[i+1]; // [lng, lat]
+
+        // Usa sua função do geo.ts para projetar o ponto no segmento
+        const snap = getNearestPointOnSegment(lat, lng, p1[1], p1[0], p2[1], p2[0]);
+        
+        // Calcula a distância real do usuário até esse ponto projetado
+        const dist = getDistance(lat, lng, snap.latitude, snap.longitude);
+
+        if (dist < minDistance) {
+          minDistance = dist;
+          bestPoint = { lat: snap.latitude, lng: snap.longitude };
+        }
+      }
+    }
+
+    console.log(`📍 Snap realizado: GPS(${lat}, ${lng}) -> Estrada(${bestPoint.lat}, ${bestPoint.lng}) dist: ${minDistance.toFixed(1)}m`);
+    return bestPoint;
+
+  } catch (error) {
+    console.error("Erro no SnapToRoad:", error);
+    return null; // Se der erro, retorna null (usaremos a coordenada original como fallback)
+  }
+}
 
 
 // ERRO GLOBAL
