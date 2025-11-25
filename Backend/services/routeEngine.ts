@@ -147,8 +147,7 @@ export class RouteEngine {
     };
   }
 
-  // --- NOVO MÉTODO PRINCIPAL: Rota com Alternativas ---
-  calculateRouteWithAlternatives(startLat: number, startLng: number, endLat: number, endLng: number) {
+calculateRouteWithAlternatives(startLat: number, startLng: number, endLat: number, endLng: number) {
     if (!this.isInitialized) throw new Error("RouteEngine não inicializado");
 
     const startSnap = this.findNearestRoadPoint(startLat, startLng);
@@ -165,40 +164,67 @@ export class RouteEngine {
 
     if (!mainRoute) return null;
 
-    // 2. Rota Alternativa (Penalização)
+    // 2. Busca Alternativa: ESTRATÉGIA DE BLOQUEIO DE NÓS (FORÇA BRUTA)
     let altRoute = null;
-    const penalizedLinks: any[] = [];
+    const totalNodes = mainPathNodes.length;
 
-    // Penaliza a rota principal
-    for (let i = 0; i < mainPathNodes.length - 1; i++) {
-      const nodeIdA = mainPathNodes[i].id;
-      const nodeIdB = mainPathNodes[i+1].id;
-      const link = this.graph.getLink(nodeIdA, nodeIdB);
-      if (link) {
-        link.data.weight *= 5; 
-        penalizedLinks.push(link);
-      }
+    // Vamos tentar bloquear a estrada em 5 pontos estratégicos diferentes ao longo da rota
+    // Ex: Se a rota tem 1000 nós, tentamos bloquear o nó 150, 300, 500, 700, 850.
+    const checkpoints = [0.15, 0.30, 0.50, 0.70, 0.85]; 
+
+    console.log(`🛡️ Iniciando busca de alternativa via Bloqueio de Nós...`);
+
+    for (const percent of checkpoints) {
+        if (altRoute) break; // Se já achou, para.
+
+        const indexToBan = Math.floor(totalNodes * percent);
+        const nodeToBan = mainPathNodes[indexToBan];
+        
+        // Guarda links originais para restaurar
+        const modifiedLinks: { link: any, originalWeight: number }[] = [];
+
+        // --- O BLOQUEIO ---
+        // Aumentamos o peso para INFINITO (na prática, um número absurdo)
+        // Isso obriga o algoritmo a não passar por esse ponto específico.
+        this.graph.forEachLinkedNode(nodeToBan.id, (linkedNode, link) => {
+            modifiedLinks.push({ link: link, originalWeight: link.data.weight });
+            link.data.weight = 100000000; // 100 Milhões (Bloqueio Virtual)
+        });
+
+        // Tenta calcular a rota com esse buraco na estrada
+        const altPathNodes = this.pathFinder.find(startSnap.nodeId, endSnap.nodeId);
+
+        // Restaura o mapa IMEDIATAMENTE
+        modifiedLinks.forEach(item => { item.link.data.weight = item.originalWeight; });
+
+        // Verifica se achou um caminho
+        if (altPathNodes && altPathNodes.length > 0) {
+            // Verifica similaridade (Jaccard)
+            const mainSet = new Set(mainPathNodes.map((n: any) => n.id));
+            const altSet = new Set(altPathNodes.map((n: any) => n.id));
+            let intersectionCount = 0;
+            altSet.forEach(id => { if (mainSet.has(id)) intersectionCount++; });
+
+            const similarity = intersectionCount / Math.max(mainSet.size, altSet.size);
+            
+            console.log(`💣 Bloqueio em ${(percent*100).toFixed(0)}%: Similaridade ${(similarity*100).toFixed(1)}%`);
+
+            // ACEITA QUALQUER COISA DIFERENTE DA PRINCIPAL
+            // Se mudou 1 rua (99.9% igual), a gente aceita.
+            if (similarity < 0.999) {
+                const potentialRoute = this.buildFullPath(altPathNodes, startPin, startSnap, endSnap, endPin);
+                
+                // CORREÇÃO AQUI: Adicionado 'potentialRoute &&'
+                if (potentialRoute && potentialRoute.distance < mainRoute.distance * 5) {
+                    altRoute = potentialRoute;
+                    console.log(`✅ Alternativa encontrada bloqueando o nó ${indexToBan}!`);
+                }
+            }
+        }
     }
 
-    // Tenta achar caminho alternativo
-    console.log("🔍 Buscando alternativa..."); // LOG NOVO
-    const altPathNodes = this.pathFinder.find(startSnap.nodeId, endSnap.nodeId);
-    
-    // Restaura pesos
-    penalizedLinks.forEach(link => link.data.weight /= 5);
-
-    if (altPathNodes && altPathNodes.length > 0) {
-      // Verifica se é diferente
-      const isDifferent = altPathNodes.length !== mainPathNodes.length || altPathNodes[Math.floor(altPathNodes.length/2)].id !== mainPathNodes[Math.floor(mainPathNodes.length/2)].id;
-      
-      if (isDifferent) {
-        console.log("🎉 É uma rota diferente!"); // LOG NOVO
-        altRoute = this.buildFullPath(altPathNodes, startPin, startSnap, endSnap, endPin);
-      } else {
-         console.log("⚠️ Alternativa igual à principal (Ignorada)."); // LOG NOVO
-      }
-    } else {
-      console.log("❌ Nenhuma alternativa física encontrada (Grafo desconexo sem a rota principal)."); // LOG NOVO
+    if (!altRoute) {
+        console.log("💀 IMPOSSÍVEL: Mesmo bloqueando a estrada, não há outro caminho físico.");
     }
 
     return {
