@@ -17,6 +17,9 @@ import util from 'util';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { getDistance, getNearestPointOnSegment } from '../utils/geo';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 const app = express();
 app.use(cors());
@@ -501,15 +504,16 @@ app.get('/properties/:id/certificate', protect, (req: any, res: Response) => {
 
 // PROPRIEDADES PÚBLICAS
 app.get('/properties/public/markers', (req: Request, res: Response) => {
-  const query = `
-    SELECT 
-      p.id, p.user_id, p.car_code, p.nome_propriedade, 
-      p.latitude, p.longitude, p.plus_code, 
-      u.nome_completo AS owner_name 
-    FROM properties p 
-    JOIN users u ON p.user_id = u.id
-  `;
-  db.query(query, (err, results) => {
+const query = `
+  SELECT 
+    p.id, p.user_id, p.car_code, p.nome_propriedade, 
+    p.latitude, p.longitude, p.plus_code, 
+    p.photo_url,  
+    u.nome_completo AS owner_name 
+  FROM properties p 
+  JOIN users u ON p.user_id = u.id
+`;
+db.query(query, (err, results) => {
     if (err) return res.status(500).json({ message: 'Erro ao buscar propriedades públicas.' });
 
     const formatted = Array.isArray(results) ? (results as RowDataPacket[]).map((p: any) => ({
@@ -822,6 +826,70 @@ app.get('/alerts', (req: Request, res: Response) => {
     console.error("Erro ao buscar alertas:", error);
     return res.status(500).json({ message: 'Erro ao buscar alertas.' });
   }
+});
+
+// --- 1. CONFIGURAÇÃO DO MULTER (UPLOAD MAIS SEGURO) ---
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = 'uploads/';
+    
+    // A MÁGICA: Cria a pasta se ela não existir
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+      console.log("Pasta 'uploads' criada automaticamente.");
+    }
+    
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname) || '.jpg'; // Garante extensão
+    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// --- 2. SERVIR ARQUIVOS ESTÁTICOS (IMPORTANTE) ---
+// Isso permite que o celular acesse a foto via http://ip:3000/uploads/foto.jpg
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+
+
+// ... (suas rotas existentes) ...
+
+
+// --- 3. NOVA ROTA DE UPLOAD DE FOTO ---
+// Rota: POST /properties/:id/photo
+app.post('/properties/:id/photo', protect, upload.single('photo'), (req: any, res: Response) => {
+  const propertyId = req.params.id;
+  
+  if (!req.file) {
+    return res.status(400).json({ message: 'Nenhuma imagem enviada.' });
+  }
+
+  // O caminho que vamos salvar no banco (ex: uploads/photo-12345.jpg)
+  // No Windows as barras vem invertidas (\), precisamos corrigir para (/) para funcionar na URL
+  const photoPath = req.file.path.replace(/\\/g, "/");
+
+  const query = 'UPDATE properties SET photo_url = ? WHERE id = ? AND user_id = ?';
+  
+  db.query(query, [photoPath, propertyId, req.user.id], (err, results: any) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Erro ao salvar caminho no banco.' });
+    }
+    
+    if (results.affectedRows === 0) {
+      return res.status(404).json({ message: 'Propriedade não encontrada ou permissão negada.' });
+    }
+
+    // Retorna a URL completa para o frontend já mostrar
+    // DICA: Se estiver no emulador, o IP deve ser ajustado no frontend, aqui mandamos o relativo
+    res.status(200).json({ 
+      message: 'Foto atualizada com sucesso!', 
+      photo_url: photoPath 
+    });
+  });
 });
 
 // ERRO GLOBAL

@@ -21,6 +21,7 @@ export type Property = {
   title?: string;
   codigo?: string;
   user_id: number;
+  photo_url?: string | null;
 };
 
 type PropertyContextType = {

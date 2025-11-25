@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert, FlatList, Keyboard } from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert, FlatList, Keyboard, Share, Image} from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Polygon, Region, Polyline } from 'react-native-maps';
 import Constants from 'expo-constants';
@@ -11,6 +11,7 @@ import { useMap } from '../../context/MapContext';
 import { useIsFocused } from '@react-navigation/native';
 import axios from 'axios';
 import { useFocusEffect } from '@react-navigation/native'; // <--- Importante
+import * as ImagePicker from 'expo-image-picker';
 
 const API_URL = "http://10.0.2.2:3000"; // Ou IP correto
 const API_KEY = Constants.expoConfig?.extra?.googleApiKey; // Garanta que está configurada
@@ -178,6 +179,13 @@ export default function MapScreen() {
 
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [isGlobalSearchFocused, setIsGlobalSearchFocused] = useState(false);
+
+  // Estado para controlar o loading da foto
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  
+  // No início do componente MapScreen
+const [isFullScreenImageVisible, setIsFullScreenImageVisible] = useState(false);
+
   // --- Efeitos ---
 
   const isSelectedOwner = useMemo(() => {
@@ -575,7 +583,12 @@ const handleTraceRoute = async (
 
       if (main) {
         const foundRoutes = [main];
-        if (alternative) foundRoutes.push(alternative);
+        
+        // Só adiciona se o backend realmente mandou uma alternativa válida
+        if (alternative) {
+            foundRoutes.push(alternative);
+        }
+        
         setRoutes(foundRoutes);
 
         // 1. Força o mapa a mostrar TODAS as propriedades (para o destino aparecer)
@@ -686,6 +699,35 @@ const handleTraceRoute = async (
     } finally { setIsLoading(false); }
   };
 
+  // Função para compartilhar o link do Google Maps
+  const handleShareProperty = async (property: Property) => {
+    try {
+      // 1. Define o que será buscado (Plus Code é prioridade, Lat/Lng é fallback)
+      const query = property.plus_code 
+        ? encodeURIComponent(property.plus_code) // Codifica caracteres especiais (espaços, +, etc)
+        : `${property.latitude},${property.longitude}`;
+
+      // 2. Monta o Link Universal do Google Maps
+      const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+
+      // 3. Monta a mensagem bonita
+      const message = `📍 *GeoRah - Localização Rural*\n\n` +
+                      `Propriedade: ${property.nome_propriedade}\n` +
+                      `CAR: ${property.car_code}\n\n` +
+                      `Abrir no Maps: ${googleMapsUrl}`;
+
+      // 4. Abre o menu nativo de compartilhamento
+      await Share.share({
+        message: message,
+        // title é usado principalmente no Android como título do dialog
+        title: `Localização: ${property.nome_propriedade}`, 
+      });
+      
+    } catch (error) {
+      Alert.alert("Erro", "Não foi possível compartilhar.");
+    }
+  };
+
 const handleGlobalSearchSelection = (property: Property) => {
     // 1. Limpa a busca e fecha o teclado
     setGlobalSearchQuery('');
@@ -771,6 +813,55 @@ const handleGlobalSearchSelection = (property: Property) => {
       setIsReporting(false);
     }
   };
+
+  // Função para selecionar e enviar foto
+const handlePickImage = async (propertyId: number) => {
+    // 1. Pede permissão e abre galeria
+    const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.5, // Qualidade média para não pesar o upload
+    });
+
+    if (!result.canceled) {
+        uploadImage(result.assets[0].uri, propertyId);
+    }
+};
+
+const uploadImage = async (uri: string, propertyId: number) => {
+    setIsUploadingPhoto(true);
+    
+    // 2. Prepara o formulário (FormData) para envio de arquivo
+    const formData = new FormData();
+    const filename = uri.split('/').pop();
+    const match = /\.(\w+)$/.exec(filename || '');
+    const type = match ? `image/${match[1]}` : `image`;
+
+    // O React Native exige esse formato específico para arquivos
+    formData.append('photo', { uri, name: filename, type } as any);
+
+    try {
+        const response = await axios.post(`${API_URL}/properties/${propertyId}/photo`, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data', // Obrigatório para arquivos
+                Authorization: `Bearer ${authToken}`
+            }
+        });
+
+        Alert.alert("Sucesso", "Foto da propriedade atualizada!");
+        
+        // 3. Atualiza os dados locais para a foto aparecer na hora
+        fetchProperties(); 
+        fetchAllPublicMarkers(true);
+
+    } catch (error) {
+        console.error("Erro upload:", error);
+        Alert.alert("Erro", "Falha ao enviar a imagem.");
+    } finally {
+        setIsUploadingPhoto(false);
+    }
+};
 
   // ----- Renderização -----
   return (
@@ -959,54 +1050,50 @@ const handleGlobalSearchSelection = (property: Property) => {
                       }
 
                       // C. Confirmação e Salvamento (Etapa 1)
-                      Alert.alert(
-                        "Definir Entrada",
-                        "Deseja definir este ponto como a nova entrada da propriedade?",
-                        [
-                          {
-                            text: "Cancelar",
-                            style: "cancel",
-                            onPress: () => setMapProperties([...mapProperties]) // Volta o pino se cancelar
-                          },
-                          {
-                            text: "Sim",
-                            onPress: async () => {
-                              try {
-                                // Chama a API criada na Etapa 1
-                                await axios.patch(`${API_URL}/properties/${prop.id}/location`,
-                                  { latitude: newCoordinate.latitude, longitude: newCoordinate.longitude },
-                                  { headers: { Authorization: `Bearer ${authToken}` } }
-                                );
+                      Alert.alert(
+                        "Definir Entrada",
+                        "Deseja definir este ponto como a nova entrada da propriedade?",
+                        [
+                          {
+                            text: "Reverter", // Texto mais claro
+                            style: "cancel", // Estilo cancel (na esquerda)
+                            onPress: () => setMapProperties([...mapProperties]) // Reverte a posição do pino
+                          },
+                          {
+                            text: "Confirmar", // Texto de confirmação
+                            style: "default", // Força estilo padrão no Android (na direita)
+                            onPress: async () => {
+                              try {
+                                // Chama a API (o bloco de salvamento que você já tem)
+                                await axios.patch(`${API_URL}/properties/${prop.id}/location`,
+                                  { latitude: newCoordinate.latitude, longitude: newCoordinate.longitude },
+                                  { headers: { Authorization: `Bearer ${authToken}` } }
+                                );
 
-                                // Atualiza o estado local para refletir a mudança permanentemente
-                                const updatedProps = mapProperties.map(p =>
-                                  p.id === prop.id ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } : p
-                                );
-                                setMapProperties(updatedProps);
+                                // Lógica de atualização de estado (já corrigida)
+                                const updatedProps = mapProperties.map(p =>
+                                  p.id === prop.id 
+                                    ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } 
+                                    : p
+                                );
+                                setMapProperties(updatedProps);
+                                setPublicPropertiesCache(prev => prev.map(p =>
+                                  p.id === prop.id ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } : p
+                                ));
+                                fetchProperties();
+                                if (filterMode === 'all') { setPublicPropertiesCache(updatedProps); }
 
-                                // 2. Atualiza o cache de "Todas" (independente do modo, para garantir sincronia)
-                                setPublicPropertiesCache(prev => prev.map(p =>
-                                  p.id === prop.id ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } : p
-                                ));
+                                Alert.alert("Sucesso", "Ponto de entrada atualizado.");
 
-                                // 3. Atualiza o contexto de "Minhas Propriedades" (Fundamental para a troca de abas)
-                                fetchProperties();
-
-                                // Se estiver no modo 'all', atualiza o cache também
-                                if (filterMode === 'all') {
-                                  setPublicPropertiesCache(updatedProps);
-                                }
-
-                                Alert.alert("Sucesso", "Ponto de entrada atualizado.");
-                              } catch (error) {
-                                console.error(error);
-                                Alert.alert("Erro", "Não foi possível atualizar a localização.");
-                                setMapProperties([...mapProperties]); // Reverte em caso de erro
-                              }
-                            }
-                          }
-                        ]
-                      );
+                              } catch (error) {
+                                console.error(error);
+                                Alert.alert("Erro", "Não foi possível atualizar a localização.");
+                                setMapProperties([...mapProperties]); // Reverte em caso de erro
+                              }
+                            }
+                          }
+                        ]
+                      );
                     }}
                   >
                   </Marker>
@@ -1026,20 +1113,23 @@ const handleGlobalSearchSelection = (property: Property) => {
             })
         )}
         {/* Fim do bloco condicional de marcadores/polígonos */}
+
+        {/* RENDERIZA AS LINHAS DA ROTA */}
         {routes.map((route, index) => {
           const isSelected = index === selectedRouteIndex;
           return (
             <Polyline
-              key={index}
+              // MUDANÇA AQUI: A key muda quando seleciona, forçando a atualização da cor
+              key={`${index}-${isSelected ? 'selected' : 'unselected'}`} 
               coordinates={route.path}
               // Rota Selecionada = Laranja (#FF5722) | Não Selecionada = Cinza (#90A4AE)
               strokeColor={isSelected ? "#FF5722" : "#90A4AE"}
               // Rota Selecionada é mais grossa
               strokeWidth={isSelected ? 6 : 5}
-              // Rota Selecionada fica por cima (Z-Index maior)
+              // Rota Selecionada fica por cima
               zIndex={isSelected ? 100 : 90}
               tappable={true}
-              onPress={() => setSelectedRouteIndex(index)} // Clicar na linha cinza seleciona ela
+              onPress={() => setSelectedRouteIndex(index)} // Clicar na linha também seleciona
             />
           );
         })}
@@ -1119,109 +1209,199 @@ const handleGlobalSearchSelection = (property: Property) => {
       </View>
     )}
     
-      {/* --- 1. PAINEL DE AÇÃO (Aparece ao clicar num marcador) --- */}
+{/* --- 1. PAINEL DE DETALHES (ESTILO GOOGLE MAPS / AIRBNB) --- */}
       {selectedMarkerId && routes.length === 0 && (
-  <View style={styles.actionPanel}>
-    <Text style={styles.actionPanelTitle}>
-        {isSelectedOwner ? "Minha Propriedade" : "Propriedade Selecionada"}
-    </Text>
+        <View style={styles.bottomSheetContainer}>
+           
+           {(() => {
+             const selectedProp = mapProperties.find(p => (p.id ?? p.car_code) === selectedMarkerId);
+             if (!selectedProp) return <ActivityIndicator color="#007BFF" style={{margin: 20}} />;
+             
+             const isOwner = userPropertyIds.has(selectedProp.id);
 
-    <Pressable
-      style={[styles.actionButton, { backgroundColor: '#FF5722', marginBottom: 10 }]}
-      onPress={() => setIsRouteListVisible(true)}
-    >
-      <FontAwesome name="map-signs" size={16} color="white" style={{ marginRight: 8 }} />
-      {/* MUDANÇA AQUI: Texto genérico para atender os dois casos */}
-      <Text style={styles.actionButtonText}>Traçar Rotas</Text>
-    </Pressable>
+             return (
+               <>
+{/* 1. IMAGEM GRANDE NO TOPO (CLICÁVEL PARA ZOOM) */}
+                 <Pressable 
+                    style={styles.bigImagePlaceholder}
+                    onPress={() => {
+                        if (selectedProp.photo_url) setIsFullScreenImageVisible(true);
+                    }}
+                 >
+                    
+                    {selectedProp.photo_url ? (
+                        <Image 
+                           source={{ uri: `${API_URL}/${selectedProp.photo_url}` }} 
+                           style={{ width: '100%', height: '100%' }}
+                           resizeMode="cover"
+                        />
+                    ) : (
+                        // Placeholder estático (sem texto de "toque para editar")
+                        <>
+                           <FontAwesome name="image" size={40} color="#ccc" />
+                           <Text style={{color: '#999', marginTop: 8, fontSize: 12}}>
+                              Sem foto disponível
+                           </Text>
+                        </>
+                    )}
 
-    <Pressable
-      style={[styles.actionButton, { backgroundColor: '#757575' }]}
-      onPress={() => setSelectedMarkerId(null)}
-    >
-      <Text style={styles.actionButtonText}>Fechar</Text>
-    </Pressable>
-  </View>
-)}
+                    {/* Botão Fechar do Painel (X) */}
+                    <Pressable 
+                        onPress={() => setSelectedMarkerId(null)} 
+                        style={styles.closeButtonFloating}
+                    >
+                        <FontAwesome name="times" size={16} color="#555" />
+                    </Pressable>
+                    
+                    {/* Ícone de Zoom (Lupa) se tiver foto - Dica visual */}
+                    {selectedProp.photo_url && (
+                        <View style={styles.zoomIconBadge}>
+                            <FontAwesome name="search-plus" size={14} color="white" />
+                        </View>
+                    )}
+                 </Pressable>
 
-      {/* --- 2. CARD DE INFORMAÇÕES DA ROTA (Aparece ao ter rota) --- */}
+                 {/* 2. CONTEÚDO (TEXTOS E BOTÕES) */}
+                 <View style={styles.sheetContent}>
+                    
+                    {/* Alça visual pequena */}
+                    <View style={styles.bottomSheetHandle} />
+
+                    <View style={{ marginBottom: 20 }}>
+                        <Text style={styles.sheetTitle} numberOfLines={1}>
+                            {selectedProp.nome_propriedade}
+                        </Text>
+                        <Text style={styles.sheetSubtitle}>CAR: {selectedProp.car_code}</Text>
+                        {selectedProp.plus_code && (
+                           <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4}}>
+                              <FontAwesome name="map-marker" size={12} color="#1A73E8" style={{marginRight: 4}} />
+                              <Text style={styles.sheetMeta}>{selectedProp.plus_code}</Text>
+                           </View>
+                        )}
+                    </View>
+
+                    {/* --- AÇÕES --- */}
+                    <View style={styles.sheetActions}>
+                        
+                        {/* Botão 1: ROTAS (Azul) */}
+                        <Pressable 
+                          style={[styles.sheetActionButton, { backgroundColor: '#4285F4' }]}
+                          onPress={() => setIsRouteListVisible(true)}
+                        >
+                           <FontAwesome name="map-signs" size={18} color="white" />
+                           <Text style={[styles.sheetActionText, { color: 'white' }]}>Traçar Rotas</Text>
+                        </Pressable>
+
+                        {/* Botão 2: ENVIAR / COMPARTILHAR (Cinza) - AGORA PARA TODOS */}
+                        <Pressable 
+                          style={[styles.sheetActionButton, { backgroundColor: '#F1F3F4' }]}
+                          // Chama a função de compartilhar direto, sem verificar se é dono
+                          onPress={() => handleShareProperty(selectedProp)}
+                        >
+                           <FontAwesome name="share-alt" size={18} color="#3C4043" />
+                           <Text style={[styles.sheetActionText, { color: '#3C4043' }]}>
+                             Enviar
+                           </Text>
+                        </Pressable>
+
+                    </View>
+                 </View>
+               </>
+             );
+           })()}
+        </View>
+      )}
+
+{/* --- 2. CARD DE INFORMAÇÕES DA ROTA (COM SELETOR) --- */}
       {routes.length > 0 && currentRoute && (
-        <View style={[styles.routeInfoCard,
-        // LÓGICA DE BORDA DINÂMICA:
-        currentRoute.alert
-          ? {
-            borderColor: currentRoute.alert.severity === 'HIGH' ? '#FFCDD2'
-              : currentRoute.alert.severity === 'MEDIUM' ? '#FFF9C4'
-                : '#C8E6C9', // Verde para LOW
-            borderWidth: 2
-          }
-          : {}
+        <View style={[styles.routeInfoCard, 
+          // Borda colorida baseada no alerta (se houver)
+          currentRoute.alert 
+            ? { 
+                borderColor: currentRoute.alert.severity === 'HIGH' ? '#FFCDD2' 
+                : currentRoute.alert.severity === 'MEDIUM' ? '#FFF9C4' 
+                : '#C8E6C9', 
+                borderWidth: 2 
+              } 
+            : {}
         ]}>
           <View style={{ flex: 1 }}>
 
-            
+{/* --- SELETOR DE ROTAS (CORRIGIDO PARA LARGURA TOTAL) --- */}
+            <View style={{ marginBottom: 10 }}>
+                {routes.length > 1 ? (
+                    // CASO A: TEM ALTERNATIVA (Mostra botões expandidos)
+                    <View style={{ 
+                        flexDirection: 'row', 
+                        backgroundColor: '#f0f0f0', 
+                        borderRadius: 8, 
+                        padding: 4, 
+                        width: '100%', // <--- MUDANÇA 1: Ocupa tudo
+                        // alignSelf removido
+                    }}>
+                        {routes.map((_, index) => {
+                        const isActive = selectedRouteIndex === index;
+                        return (
+                            <Pressable
+                            key={index}
+                            onPress={() => setSelectedRouteIndex(index)}
+                            style={{ 
+                                flex: 1, // <--- MUDANÇA 2: Divide o espaço igualmente
+                                alignItems: 'center', // Centraliza o texto
+                                paddingVertical: 8,   // Mais altura para o toque
+                                backgroundColor: isActive ? 'white' : 'transparent', 
+                                borderRadius: 6, 
+                                elevation: isActive ? 2 : 0,
+                                shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 1
+                            }}
+                            >
+                            <Text style={{ 
+                                fontSize: 12, 
+                                fontWeight: 'bold', 
+                                color: isActive ? '#FF5722' : '#999'
+                            }}>
+                                {index === 0 ? "Principal" : "Alternativa"}
+                            </Text>
+                            </Pressable>
+                        );
+                        })}
+                    </View>
+                ) : (
+                    // CASO B: SÓ TEM UMA ROTA
+                    <View style={{ 
+                        backgroundColor: '#E3F2FD', paddingHorizontal: 8, paddingVertical: 4, 
+                        borderRadius: 4, alignSelf: 'flex-start' 
+                    }}>
+                        <Text style={{ fontSize: 11, color: '#1976D2', fontWeight: 'bold' }}>ROTA PRINCIPAL</Text>
+                    </View>
+                )}
+            </View>
 
-            {/* 1. BARRA DE CLIMA (Agora mostra Tempo Bom também) */}
+            {/* BARRA DE CLIMA */}
             {currentRoute.alert && (
               <View style={{
                 flexDirection: 'row',
-                // Cores de Fundo Dinâmicas
-                backgroundColor: currentRoute.alert.severity === 'HIGH' ? '#FFEBEE'
-                  : currentRoute.alert.severity === 'MEDIUM' ? '#FFFDE7'
-                    : '#E8F5E9', // Verde Claro
-                padding: 8,
-                borderRadius: 6,
-                marginBottom: 10,
-                alignItems: 'center'
+                backgroundColor: currentRoute.alert.severity === 'HIGH' ? '#FFEBEE' 
+                  : currentRoute.alert.severity === 'MEDIUM' ? '#FFFDE7' 
+                  : '#E8F5E9',
+                padding: 8, borderRadius: 6, marginBottom: 10, alignItems: 'center'
               }}>
-                {/* Ícone Dinâmico: Sol para LOW, Alerta para outros */}
-                <FontAwesome
-                  name={currentRoute.alert.severity === 'LOW' ? 'sun-o' : 'exclamation-triangle'}
-                  size={14}
-                  // Cores do Ícone
-                  color={currentRoute.alert.severity === 'HIGH' ? '#D32F2F'
-                    : currentRoute.alert.severity === 'MEDIUM' ? '#FBC02D'
-                      : '#2E7D32'} // Verde Escuro
-                  style={{ marginRight: 6 }}
+                <FontAwesome 
+                  name={currentRoute.alert.severity === 'LOW' ? 'sun-o' : 'exclamation-triangle'} 
+                  size={14} 
+                  color={currentRoute.alert.severity === 'HIGH' ? '#D32F2F' : currentRoute.alert.severity === 'MEDIUM' ? '#FBC02D' : '#2E7D32'} 
+                  style={{ marginRight: 6 }} 
                 />
-                <Text style={{
-                  // Cores do Texto
-                  color: currentRoute.alert.severity === 'HIGH' ? '#C62828'
-                    : currentRoute.alert.severity === 'MEDIUM' ? '#F57F17'
-                      : '#1B5E20', // Verde Escuro
-                  fontSize: 12,
-                  fontWeight: 'bold',
-                  flex: 1
+                <Text style={{ 
+                  color: currentRoute.alert.severity === 'HIGH' ? '#C62828' : currentRoute.alert.severity === 'MEDIUM' ? '#F57F17' : '#1B5E20', 
+                  fontSize: 12, fontWeight: 'bold', flex: 1 
                 }}>
                   {currentRoute.alert.title}
                 </Text>
               </View>
             )}
 
-            {/* 2. SELETOR DE ROTAS (Mantido Igual) */}
-            {routes.length > 1 ? (
-              <View style={{ flexDirection: 'row', backgroundColor: '#f0f0f0', borderRadius: 8, padding: 2, marginBottom: 10, alignSelf: 'flex-start' }}>
-                {routes.map((route, index) => {
-                  const isActive = selectedRouteIndex === index;
-                  return (
-                    <Pressable
-                      key={index}
-                      onPress={() => setSelectedRouteIndex(index)}
-                      style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: isActive ? 'white' : 'transparent', borderRadius: 6, elevation: isActive ? 2 : 0 }}
-                    >
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: isActive ? '#FF5722' : '#999' }}>
-                        {index === 0 ? "Principal" : "Alternativa"}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : (
-              // Se não tem abas E não tem alerta, mostra o rótulo
-              !currentRoute.alert && <Text style={styles.routeLabel}>ROTA PRINCIPAL</Text>
-            )}
-
-            {/* 3. DADOS DA ROTA */}
+            {/* DADOS DA ROTA (Tempo e Distância) */}
             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
               <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#333', marginRight: 8 }}>
                 {currentRoute.duration}
@@ -1231,23 +1411,24 @@ const handleGlobalSearchSelection = (property: Property) => {
               </Text>
             </View>
 
-            {/* 4. DESCRIÇÃO DO CLIMA */}
+            {/* DESCRIÇÃO DO CLIMA */}
             {currentRoute.alert && (
-              <Text style={{
-                fontSize: 11,
-                marginTop: 4,
-                fontStyle: 'italic',
-                color: currentRoute.alert.severity === 'LOW' ? '#388E3C' : '#D32F2F' // Verde ou Vermelho
-              }}>
+              <Text style={{ fontSize: 11, marginTop: 4, fontStyle: 'italic', color: currentRoute.alert.severity === 'LOW' ? '#388E3C' : '#D32F2F' }}>
                 {currentRoute.alert.description}
               </Text>
             )}
 
           </View>
 
-          {/* 5. BOTÃO FECHAR */}
+          {/* BOTÃO FECHAR */}
           <Pressable
-            onPress={() => { setRoutes([]); setRouteDestinationId(null); setSelectedRouteIndex(0); setSelectedMarkerId(null); setRouteOriginId(null); }}
+            onPress={() => { 
+                setRoutes([]); 
+                setRouteDestinationId(null); 
+                setSelectedRouteIndex(0); 
+                setSelectedMarkerId(null); 
+                setRouteOriginId(null); 
+            }}
             style={{ marginLeft: 20, padding: 5 }}
           >
             <FontAwesome name="times-circle" size={36} color="#d9534f" />
@@ -1569,6 +1750,39 @@ const handleGlobalSearchSelection = (property: Property) => {
           </View>
         </View>
       </Modal>
+
+      {/* --- MODAL DE IMAGEM EM TELA CHEIA --- */}
+      <Modal
+        visible={isFullScreenImageVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsFullScreenImageVisible(false)}
+      >
+        <View style={styles.fullScreenContainer}>
+           {/* Botão Fechar Grande */}
+           <Pressable 
+              style={styles.fullScreenCloseButton} 
+              onPress={() => setIsFullScreenImageVisible(false)}
+           >
+              <FontAwesome name="times" size={24} color="white" />
+           </Pressable>
+
+           {/* A Imagem */}
+           {(() => {
+              const prop = mapProperties.find(p => (p.id ?? p.car_code) === selectedMarkerId);
+              if (prop?.photo_url) {
+                  return (
+                    <Image 
+                        source={{ uri: `${API_URL}/${prop.photo_url}` }} 
+                        style={{ width: '100%', height: '80%' }}
+                        resizeMode="contain" // Garante que a foto inteira apareça sem cortes
+                    />
+                  );
+              }
+              return null;
+           })()}
+        </View>
+      </Modal>
     </View>
   );
   
@@ -1840,8 +2054,96 @@ userLocationDot: {
   gpsOptionSubtitle: {
     color: '#777', 
     fontSize: 11
-  }
-  
+  },
+  // --- ESTILOS DO BOTTOM SHEET ---
+  bottomSheetContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    // SEM PADDING AQUI para a imagem encostar nas bordas
+    elevation: 20,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.1, shadowRadius: 10,
+    zIndex: 1000,
+    overflow: 'hidden', // Garante que a imagem respeite o arredondamento do topo
+  },
+  // Imagem Grande
+  bigImagePlaceholder: {
+    width: '100%',
+    height: 150, // Altura fixa para a área da foto
+    backgroundColor: '#F8F9FA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderColor: '#f0f0f0'
+  },
+  // Botão X flutuante sobre a imagem
+  closeButtonFloating: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    backgroundColor: 'white',
+    width: 30, height: 30,
+    borderRadius: 15,
+    justifyContent: 'center', alignItems: 'center',
+    elevation: 3,
+    zIndex: 2
+  },
+  // Área de texto e botões (com padding)
+  sheetContent: {
+    padding: 20,
+    paddingTop: 10,
+  },
+  bottomSheetHandle: {
+    width: 40, height: 4, backgroundColor: '#E0E0E0', borderRadius: 2, alignSelf: 'center', marginBottom: 15,
+  },
+  sheetTitle: {
+    fontSize: 20, fontWeight: 'bold', color: '#202124', marginBottom: 2,
+  },
+  sheetSubtitle: {
+    fontSize: 14, color: '#5F6368',
+  },
+  sheetMeta: {
+    fontSize: 13, color: '#1A73E8', fontWeight: '500'
+  },
+  sheetActions: {
+    flexDirection: 'row', gap: 12,
+  },
+  sheetActionButton: {
+    flex: 1,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 12, borderRadius: 24, gap: 8,
+    elevation: 1,
+  },
+  sheetActionText: {
+    fontSize: 15, fontWeight: '600', color: 'white',
+  },
+
+  // --- ESTILOS DE IMAGEM E ZOOM ---
+  zoomIconBadge: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 6,
+    borderRadius: 4,
+  },
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: 'black',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenCloseButton: {
+    position: 'absolute',
+    top: 40, // Ajuste para StatusBar
+    right: 20,
+    padding: 10,
+    zIndex: 10,
+  },
 });
 
 

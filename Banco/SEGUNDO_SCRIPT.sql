@@ -198,3 +198,5 @@ SELECT id, car_code, LEFT(CAST(boundary AS CHAR), 200) AS boundary_start
 FROM properties 
 WHERE boundary IS NOT NULL
 LIMIT 5;
+
+ALTER TABLE properties ADD COLUMN photo_url VARCHAR(255) DEFAULT NULL;
