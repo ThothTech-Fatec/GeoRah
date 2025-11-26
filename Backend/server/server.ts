@@ -28,7 +28,7 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("A chave JWT_SECRET não está definida no arquivo .env");
 
-const MONGO_URI = "mongodb://localhost:27017/georah";
+const MONGO_URI = "mongodb://localhost:27017/georah_mongo";
 
 mongoose.connect(MONGO_URI)
   .then(async () => {
@@ -425,9 +425,10 @@ app.patch('/properties/:id/location', protect, (req: any, res: Response) => {
 });
 
 app.get('/profile', protect, (req: any, res: Response) => {
-  const userId = req.user.id; // ID do usuário a partir do token JWT (middleware 'protect')
+  const userId = req.user.id; 
 
-  db.query('SELECT id, nome_completo, email FROM users WHERE id = ?', [userId], (err, results: any) => {
+  // 1. MUDANÇA: Adicionei ', cpf' na consulta SQL
+  db.query('SELECT id, nome_completo, email, cpf FROM users WHERE id = ?', [userId], (err, results: any) => {
     if (err) {
       console.error("Erro ao buscar perfil:", err);
       return res.status(500).json({ message: 'Erro ao buscar dados do perfil.' });
@@ -438,27 +439,31 @@ app.get('/profile', protect, (req: any, res: Response) => {
 
     const user = results[0];
 
-    // Extrai o CPF do email (assumindo formato cpf@dominio.com)
-    const cpf = user.email.includes('@') ? user.email.split('@')[0] : 'Não disponível';
+    // 2. LÓGICA HÍBRIDA (Igual à do Certificado):
+    // Tenta pegar da coluna oficial 'cpf'. Se for null, tenta extrair do e-mail como fallback.
+    let cpfFinal = user.cpf;
+    
+    if (!cpfFinal && user.email && user.email.includes('@')) {
+        cpfFinal = user.email.split('@')[0];
+    }
 
-    // Retorna os dados necessários
     return res.status(200).json({
       nome_completo: user.nome_completo,
       email: user.email,
-      cpf: cpf // Enviamos o CPF extraído
+      cpf: cpfFinal || 'Não informado' // Envia o CPF correto
     });
   });
 });
 
 app.get('/properties/:id/certificate', protect, (req: any, res: Response) => {
   const propertyId = req.params.id;
-  const userId = req.user.id; // ID do usuário autenticado
+  const userId = req.user.id; 
 
-  // Busca os dados da propriedade E do usuário (JOIN), incluindo CPF
+  // 1. ATUALIZAÇÃO: Adicionamos 'u.cpf' de volta à consulta
   const query = `
     SELECT 
       p.car_code, p.nome_propriedade, p.latitude, p.longitude, p.plus_code,
-      u.nome_completo, u.email
+      u.nome_completo, u.email, u.cpf
     FROM properties p
     JOIN users u ON p.user_id = u.id
     WHERE p.id = ? AND p.user_id = ? 
@@ -475,9 +480,14 @@ app.get('/properties/:id/certificate', protect, (req: any, res: Response) => {
 
     const data = results[0];
 
-    const cpfDoUsuario = data.email && data.email.includes('@')
-      ? data.email.split('@')[0]
-      : null;
+    // 2. LÓGICA HÍBRIDA DE CPF:
+    // Prioridade 1: Coluna CPF do banco (Source of Truth)
+    // Prioridade 2: Extração do E-mail (Fallback para usuários antigos/migrados)
+    let cpfDoUsuario = data.cpf;
+
+    if (!cpfDoUsuario && data.email && data.email.includes('@')) {
+       cpfDoUsuario = data.email.split('@')[0];
+    }
 
     try {
       await gerarCertificadoPDF(
@@ -489,9 +499,8 @@ app.get('/properties/:id/certificate', protect, (req: any, res: Response) => {
         Number(data.latitude),
         Number(data.longitude),
         data.plus_code,
-        cpfDoUsuario // 3. Passamos o CPF extraído manualmente
+        cpfDoUsuario // Passa o CPF definitivo
       );
-      // A função gerarCertificadoPDF cuida de res.end()
     } catch (pdfError) {
       console.error("Erro ao gerar PDF:", pdfError);
       if (!res.headersSent) {

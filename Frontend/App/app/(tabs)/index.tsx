@@ -390,21 +390,31 @@ export default function MapScreen() {
   useEffect(() => {
     console.log("--- useEffect DATA Processing (Hybrid) ---");
 
-    if (locationToFocus && isFocused) {
-      console.log("Foco detectado, carregando propriedades do usuário.");
-      setFilterMode('mine');
-      // ATUALIZADO: Usa a variável memoizada
-      if (mapProperties !== processedUserProperties) {
-        setMapProperties(processedUserProperties as any);
-      }
-      return;
+if (locationToFocus && isFocused) {
+        console.log("Foco detectado, carregando propriedades do usuário.");
+        setFilterMode('mine'); 
+        if (mapProperties !== processedUserProperties) { 
+          setMapProperties(processedUserProperties as any);
+        }
+        return;
     }
 
     if (isFocused) {
       if (isGuest) {
         setFilterMode('all');
-        fetchAllPublicMarkers();
+        // --- CORREÇÃO AQUI: Lógica para Convidado ---
+        if (publicPropertiesCache.length === 0) {
+           fetchAllPublicMarkers(); // Busca se não tiver
+        } else {
+           // Se já tem no cache, MOSTRA NO MAPA! (Faltava isso)
+           if (mapProperties !== publicPropertiesCache) {
+             setMapProperties(publicPropertiesCache);
+           }
+        }
+        fetchViewportBoundaries(currentRegion); // (Opcional) Busca polígonos se quiser
+        // ---------------------------------------------
       } else {
+        // Lógica para Usuário Logado (Mantida igual)
         if (filterMode === 'all') {
           if (publicPropertiesCache.length === 0) {
             fetchAllPublicMarkers();
@@ -415,8 +425,7 @@ export default function MapScreen() {
           }
           fetchViewportBoundaries(currentRegion);
         } else { // filterMode === 'mine'
-          // ATUALIZADO: Usa a variável memoizada
-          if (mapProperties !== processedUserProperties) {
+          if (mapProperties !== processedUserProperties) { 
             setMapProperties(processedUserProperties as any);
           }
           setVisibleBoundaries({});
