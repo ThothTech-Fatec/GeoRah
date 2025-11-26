@@ -139,6 +139,7 @@ export default function MapScreen() {
   const isFocused = useIsFocused();
   // mapProperties guarda dados BRUTOS (boundary é string JSON ou GeoJSON object)
   const [mapProperties, setMapProperties] = useState<Property[]>([]);
+  const [dragResetTrigger, setDragResetTrigger] = useState(0);
   // Cache para todas as propriedades públicas
   const [publicPropertiesCache, setPublicPropertiesCache] = useState<Property[]>([]);
   const [mapAlerts, setMapAlerts] = useState<RoadAlert[]>([]);
@@ -898,6 +899,89 @@ if (locationToFocus && isFocused) {
       setIsUploadingPhoto(false);
     }
   };
+
+const handleUpdateLocation = async (property: Property, newCoordinate: LatLng) => {
+    // Tenta pegar o boundary do objeto (Modo "Minhas")
+    // Se não tiver, pega do cache visual (Modo "Todas")
+    let rawBoundary = property.boundary;
+    
+    // Se rawBoundary for nulo/vazio E tivermos o ID no visibleBoundaries
+    if (!rawBoundary && property.id && visibleBoundaries[property.id]) {
+      rawBoundary = visibleBoundaries[property.id];
+    }
+
+    const boundaryCoords = parseBoundaryToLatLng(rawBoundary, property.car_code);
+
+    if (boundaryCoords.length > 2) {
+      const isInside = isPointInPolygon(newCoordinate, boundaryCoords);
+      
+      if (!isInside) {
+        Alert.alert("Local Inválido", "O ponto de entrada deve ficar dentro dos limites da sua propriedade.");
+        setDragResetTrigger(prev => prev + 1); 
+        return;
+      }
+    } else {
+      Alert.alert("Atenção", "Aproxime o zoom para carregar os limites da propriedade antes de editar.");
+      setDragResetTrigger(prev => prev + 1);
+      return;
+    }
+
+    Alert.alert(
+      "Nova Localização",
+      "Deseja definir este ponto como a entrada principal?",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel",
+          onPress: () => setDragResetTrigger(prev => prev + 1) 
+        },
+        {
+          text: "Confirmar",
+          onPress: async () => {
+            try {
+              await axios.patch(`${API_URL}/properties/${property.id}/location`, {
+                latitude: newCoordinate.latitude,
+                longitude: newCoordinate.longitude
+              }, {
+                headers: { Authorization: `Bearer ${authToken}` }
+              });
+
+              Alert.alert("Sucesso", "Localização atualizada!");
+
+              fetchProperties();
+              
+              // Atualiza cache público
+              setPublicPropertiesCache(prev => prev.map(p => 
+                p.id === property.id 
+                  ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } 
+                  : p
+              ));
+              
+              // Atualiza visualização atual
+              setMapProperties(prev => prev.map(p => 
+                p.id === property.id 
+                  ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } 
+                  : p
+              ));
+              
+              fetchAllPublicMarkers(true);
+
+              const pCode = await getPlusCodeFromCoordinates(newCoordinate.latitude, newCoordinate.longitude);
+              if (pCode) {
+                axios.patch(`${API_URL}/properties/public/${property.id}/pluscode`, { plus_code: pCode });
+              }
+
+            } catch (error) {
+              console.error(error);
+              Alert.alert("Erro", "Falha ao atualizar localização.");
+              setDragResetTrigger(prev => prev + 1);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   // ----- Renderização -----
 
 const propertiesToRender = useMemo(() => {
@@ -938,7 +1022,7 @@ const propertiesToRender = useMemo(() => {
       return isMarkerVisible({ latitude: prop.latitude, longitude: prop.longitude }, currentRegion);
     });
 
-  }, [mapProperties, currentRegion, routes, routeOriginId, routeDestinationId, selectedMarkerId]);
+  }, [mapProperties, currentRegion, routes, routeOriginId, routeDestinationId, selectedMarkerId, dragResetTrigger]);
 
   if (!initialMapRegion) {
     return (
@@ -1034,6 +1118,7 @@ const propertiesToRender = useMemo(() => {
         {/* Marcador azul (nova propriedade) */}
         {clickedLocation && !isDrawing && (
           <Marker
+          
             coordinate={clickedLocation} pinColor="blue" draggable title="Novo Local" description={plusCode || "Arraste"}
             onDragEnd={(e) => {
               const newCoords = e.nativeEvent.coordinate;
@@ -1084,7 +1169,7 @@ const propertiesToRender = useMemo(() => {
              const polygonFillColor = isOwner ? "rgba(0, 0, 255, 0.15)" : "rgba(0, 100, 0, 0.15)";
 
              return (
-                <React.Fragment key={propId}>
+                <React.Fragment key={`${prop.id ?? prop.car_code}-${dragResetTrigger}`}>
                   
                   {shouldShowMarker && (
                       <Marker
@@ -1097,6 +1182,10 @@ const propertiesToRender = useMemo(() => {
                         draggable={isOwner} 
                         // Performance: Rota e Selecionado podem atualizar, os outros ficam estáticos
                         tracksViewChanges={isSelected || isRoutePoint} 
+                        onDragEnd={(e) => {
+                                          const newCoords = e.nativeEvent.coordinate;
+                                          handleUpdateLocation(prop, newCoords);
+                        }}
                         onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
                       />
                   )}
