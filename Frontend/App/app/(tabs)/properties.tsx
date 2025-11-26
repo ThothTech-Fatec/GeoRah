@@ -48,79 +48,69 @@ const handleUpdatePhoto = async () => {
     if (!editingProperty) return;
 
     try {
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true, 
-            aspect: [4, 3],
-            quality: 0.5,
-        });
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.5,
+      });
 
-        if (result.canceled) return;
+      if (result.canceled) return;
 
-        const asset = result.assets[0];
-        
-        // Validação de Tamanho
-        const FIVE_MB = 5 * 1024 * 1024;
-        if (asset.fileSize && asset.fileSize > FIVE_MB) {
-            Alert.alert("Arquivo muito grande", "Por favor, escolha uma imagem menor que 5MB.");
-            return;
-        }
+      const asset = result.assets[0];
 
-        setIsUploadingPhoto(true);
-        const localUri = asset.uri;
+      // Validação de Tamanho
+      const FIVE_MB = 5 * 1024 * 1024;
+      if (asset.fileSize && asset.fileSize > FIVE_MB) {
+        // Alert.alert("Arquivo muito grande", "Por favor, escolha uma imagem menor que 5MB."); // REMOVIDO
+        return;
+      }
 
-        // --- CORREÇÃO FINAL DO UPLOAD/MIME TYPE ---
-        
-        // 1. Pega o nome do arquivo ou gera um nome seguro
-        let filename = localUri.split('/').pop() || `upload_${Date.now()}`;
-        
-        // 2. Garante que sempre terá uma extensão e um tipo MIME válido
-        const typeMatch = /\.(\w+)$/.exec(filename);
-        const mimeType = typeMatch ? `image/${typeMatch[1].toLowerCase()}` : 'image/jpeg';
-        
-        // Se o nome do arquivo temporário não tiver extensão (comum em arquivos editados/cortados), adicionamos .jpeg
-        if (!filename.includes('.')) {
-            filename = `${filename}.jpeg`;
-        }
-        // ------------------------------------------
+      setIsUploadingPhoto(true);
+      const localUri = asset.uri;
 
-        const formData = new FormData();
-        
-        // @ts-ignore
-        formData.append('photo', { 
-            uri: localUri, 
-            name: filename, // Nome do arquivo garantido com extensão
-            type: mimeType // Tipo MIME garantido
-        } as any);
+      let filename = localUri.split('/').pop() || `upload_${Date.now()}`;
+      const typeMatch = /\.(\w+)$/.exec(filename);
+      const mimeType = typeMatch ? `image/${typeMatch[1].toLowerCase()}` : 'image/jpeg';
 
-        const response = await axios.post(`${API_URL}/properties/${editingProperty.id}/photo`, formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-                Authorization: `Bearer ${authToken}`
-            },
-            timeout: 20000,
-        });
+      if (!filename.includes('.')) {
+        filename = `${filename}.jpeg`;
+      }
 
-        // Sucesso e Atualização de Listas
-        await fetchProperties();
-        
-        // Atualiza o objeto local do modal
-        const updatedList = await axios.get(`${API_URL}/properties`, { headers: { Authorization: `Bearer ${authToken}` } });
-        const updatedProp = updatedList.data.find((p: Property) => p.id === editingProperty.id);
-        if (updatedProp) setEditingProperty(updatedProp);
+      const formData = new FormData();
 
-        Alert.alert("Sucesso", "Foto atualizada!");
+      // @ts-ignore
+      formData.append('photo', {
+        uri: localUri,
+        name: filename,
+        type: mimeType
+      } as any);
+
+      await axios.post(`${API_URL}/properties/${editingProperty.id}/photo`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          Authorization: `Bearer ${authToken}`
+        },
+        timeout: 20000,
+      });
+
+      // Sucesso e Atualização de Listas
+      await fetchProperties();
+
+      const updatedList = await axios.get(`${API_URL}/properties`, { headers: { Authorization: `Bearer ${authToken}` } });
+      const updatedProp = updatedList.data.find((p: Property) => p.id === editingProperty.id);
+      if (updatedProp) setEditingProperty(updatedProp);
+
+      Alert.alert("Sucesso", "Foto atualizada!"); 
 
     } catch (error: any) {
-        console.error("Erro upload:", error);
-        const msg = error.message === 'Network Error' 
-            ? "Falha no envio! Verifique o servidor/conexão ou tente uma imagem menor."
-            : "Falha ao enviar a imagem.";
-        Alert.alert("Erro", msg);
+
+      console.log("Falha silenciosa no upload:", error.message);
+
     } finally {
-        setIsUploadingPhoto(false);
+      setIsUploadingPhoto(false);
     }
-};
+  };
 
   const handleDownloadCertificate = async (property: Property) => {
     if (!authToken || !property?.id) return;

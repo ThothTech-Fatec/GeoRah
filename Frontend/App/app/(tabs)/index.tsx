@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert, FlatList, Keyboard, Share, Image} from 'react-native';
+import { StyleSheet, View, Text, ActivityIndicator, Modal, Pressable, TextInput, Alert, FlatList, Keyboard, Share, Image } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import MapView, { Marker, PROVIDER_GOOGLE, LatLng, MapPressEvent, Polygon, Region, Polyline } from 'react-native-maps';
 import Constants from 'expo-constants';
@@ -20,7 +20,7 @@ const API_KEY = Constants.expoConfig?.extra?.googleApiKey; // Garanta que está 
 // Nível de zoom (latitudeDelta) para mostrar polígonos
 const POLYGON_VISIBILITY_ZOOM_THRESHOLD = 0.1; // Mais perto
 // Nível de zoom para mostrar MARCADORES
-const MARKER_VISIBILITY_ZOOM_THRESHOLD = 0.6; // Mais afastado (mostra antes dos polígonos)
+const MARKER_VISIBILITY_ZOOM_THRESHOLD = 0.03; // Mais afastado (mostra antes dos polígonos)
 
 // --- Função Auxiliar para verificar visibilidade ---
 const isMarkerVisible = (markerCoords: LatLng, region: Region | null): boolean => {
@@ -139,6 +139,7 @@ export default function MapScreen() {
   const isFocused = useIsFocused();
   // mapProperties guarda dados BRUTOS (boundary é string JSON ou GeoJSON object)
   const [mapProperties, setMapProperties] = useState<Property[]>([]);
+  const [dragResetTrigger, setDragResetTrigger] = useState(0);
   // Cache para todas as propriedades públicas
   const [publicPropertiesCache, setPublicPropertiesCache] = useState<Property[]>([]);
   const [mapAlerts, setMapAlerts] = useState<RoadAlert[]>([]);
@@ -169,8 +170,16 @@ export default function MapScreen() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [polygonPoints, setPolygonPoints] = useState<LatLng[]>([]);
   const currentRoute = routes[selectedRouteIndex] || null;
+
   const initialRegion: Region = { latitude: -21.888341, longitude: -51.499488, latitudeDelta: 0.8822, longitudeDelta: 0.5821 };
-  const [currentRegion, setCurrentRegion] = useState<Region | null>(initialRegion);
+  // Região de fallback para quando o GPS falhar ou for negado
+  const FALLBACK_REGION: Region = { latitude: -21.888341, longitude: -51.499488, latitudeDelta: 0.8822, longitudeDelta: 0.5821 };
+
+  // O Mapa só será renderizado quando este estado for preenchido (no useEffect)
+  const [initialMapRegion, setInitialMapRegion] = useState<Region | null>(null);
+
+  // O currentRegion pode ser inicializado com o fallback ou null
+  const [currentRegion, setCurrentRegion] = useState<Region | null>(null);
   const processedUserProperties = useMemo(() => {
     return processBasicData(userProperties);
   }, [userProperties]); // Só recalcula se 'userProperties' mudar
@@ -182,9 +191,9 @@ export default function MapScreen() {
 
   // Estado para controlar o loading da foto
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
-  
+
   // No início do componente MapScreen
-const [isFullScreenImageVisible, setIsFullScreenImageVisible] = useState(false);
+  const [isFullScreenImageVisible, setIsFullScreenImageVisible] = useState(false);
 
   // --- Efeitos ---
 
@@ -194,70 +203,89 @@ const [isFullScreenImageVisible, setIsFullScreenImageVisible] = useState(false);
   }, [selectedMarkerId, userPropertyIds]);
 
 
-// Reseta a paginação quando o modal abre ou fecha
-useEffect(() => {
-  if (!isRouteListVisible) {
-    setListLimit(20); // Volta para 20 itens
-  }
-}, [isRouteListVisible]);
+  // Reseta a paginação quando o modal abre ou fecha
+  useEffect(() => {
+    if (!isRouteListVisible) {
+      setListLimit(20); // Volta para 20 itens
+    }
+  }, [isRouteListVisible]);
 
-useEffect(() => {
+  useEffect(() => {
     let locationSubscription: Location.LocationSubscription | null = null;
+    let isMounted = true;
 
     const startWatching = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
+
       if (status !== 'granted') {
-        Alert.alert('Permissão negada', 'Precisamos da sua localização.');
+        Alert.alert('Permissão negada', 'O mapa será centralizado no padrão.');
+        if (isMounted) {
+          setInitialMapRegion(FALLBACK_REGION);
+          setCurrentRegion(FALLBACK_REGION);
+        }
         return;
       }
 
       try {
-        // --- A MÁGICA ACONTECE AQUI ---
-        // watchPositionAsync fica "ouvindo" o GPS.
-        // Toda vez que você andar, ele roda a função interna.
-        locationSubscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High, // Alta precisão
-            timeInterval: 2000,               // Atualiza a cada 2 segundos (mínimo)
-            distanceInterval: 2,              // Ou se andar 2 metros
-          },
-          (location) => {
-            // Essa função roda toda vez que o GPS muda
-            const coords = { 
-              latitude: location.coords.latitude, 
-              longitude: location.coords.longitude 
-            };
-            
-            console.log("📍 Nova posição detectada:", coords);
-            setUserLocation(coords);
+        // 1. Pega a posição ATUAL precisa para o "nascimento" do mapa
+        const initialLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High
+        });
 
-            // Opcional: Se quiser que o mapa SIGA você (centralize automático), descomente abaixo.
-            // Mas cuidado: isso impede o usuário de arrastar o mapa para o lado.
-            /* if (mapViewRef.current) {
-               mapViewRef.current.animateToRegion({ ...coords, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 500);
-            } 
-            */
+        const initialCoords = {
+          latitude: initialLocation.coords.latitude,
+          longitude: initialLocation.coords.longitude
+        };
+
+        // ZOOM BEM PRÓXIMO (0.005)
+        const newInitialRegion = {
+          ...initialCoords,
+          latitudeDelta: 0.005,
+          longitudeDelta: 0.005
+        };
+
+        if (isMounted) {
+          setUserLocation(initialCoords);
+          setCurrentRegion(newInitialRegion);
+          // Libera o mapa para renderizar já no lugar certo
+          setInitialMapRegion(newInitialRegion);
+        }
+
+        // 2. Monitoramento contínuo
+        locationSubscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 2 },
+          (location) => {
+            if (isMounted) {
+              setUserLocation({
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude
+              });
+            }
           }
         );
       } catch (error) {
-        console.log("Erro no WatchPosition:", error);
+        console.log("Erro GPS:", error);
+        if (isMounted) {
+          setInitialMapRegion(FALLBACK_REGION);
+          setCurrentRegion(FALLBACK_REGION);
+        }
       }
     };
 
     startWatching();
 
     // --- LIMPEZA ---
-    // Muito importante: Quando você sai da tela, paramos de usar o GPS para economizar bateria
     return () => {
+      isMounted = false; // Garante que não atualiza o estado se desmontado
       if (locationSubscription) {
         locationSubscription.remove();
       }
     };
   }, []);
 
-const clusteredAlerts = useMemo(() => {
+  const clusteredAlerts = useMemo(() => {
     const grouped: { [key: string]: RoadAlert[] } = {};
-    
+
     // 1. Agrupa por posição
     mapAlerts.forEach(alert => {
       const key = `${alert.lat.toFixed(4)},${alert.lng.toFixed(4)}`;
@@ -274,11 +302,11 @@ const clusteredAlerts = useMemo(() => {
 
   // --- NOVAS FUNÇÕES DE FETCH OTIMIZADAS ---
 
-// 1. Busca todos os MARCADORES públicos
+  // 1. Busca todos os MARCADORES públicos
   const fetchAllPublicMarkers = useCallback(async (force: boolean = false) => {
     // Se NÃO for forçado E já tiver feito o fetch inicial, para aqui.
     if (!force && initialMarkerFetchDone.current) return;
-    
+
     initialMarkerFetchDone.current = true;
 
     console.log("Buscando TODOS os marcadores públicos...");
@@ -299,12 +327,12 @@ const clusteredAlerts = useMemo(() => {
   useFocusEffect(
     useCallback(() => {
       // 1. Atualiza "Minhas Propriedades" (Contexto)
-      fetchProperties(); 
+      fetchProperties();
 
       // 2. Atualiza "Todas as Propriedades" (Cache Público)
       // Passamos 'true' para FORÇAR a atualização ignorando a trava
-      fetchAllPublicMarkers(true); 
-      
+      fetchAllPublicMarkers(true);
+
       console.log("🔄 Tela focada: Dados atualizados.");
     }, [fetchProperties, fetchAllPublicMarkers])
   );
@@ -363,21 +391,31 @@ const clusteredAlerts = useMemo(() => {
   useEffect(() => {
     console.log("--- useEffect DATA Processing (Hybrid) ---");
 
-    if (locationToFocus && isFocused) {
-      console.log("Foco detectado, carregando propriedades do usuário.");
-      setFilterMode('mine');
-      // ATUALIZADO: Usa a variável memoizada
-      if (mapProperties !== processedUserProperties) {
-        setMapProperties(processedUserProperties as any);
-      }
-      return;
+if (locationToFocus && isFocused) {
+        console.log("Foco detectado, carregando propriedades do usuário.");
+        setFilterMode('mine'); 
+        if (mapProperties !== processedUserProperties) { 
+          setMapProperties(processedUserProperties as any);
+        }
+        return;
     }
 
     if (isFocused) {
       if (isGuest) {
         setFilterMode('all');
-        fetchAllPublicMarkers();
+        // --- CORREÇÃO AQUI: Lógica para Convidado ---
+        if (publicPropertiesCache.length === 0) {
+           fetchAllPublicMarkers(); // Busca se não tiver
+        } else {
+           // Se já tem no cache, MOSTRA NO MAPA! (Faltava isso)
+           if (mapProperties !== publicPropertiesCache) {
+             setMapProperties(publicPropertiesCache);
+           }
+        }
+        fetchViewportBoundaries(currentRegion); // (Opcional) Busca polígonos se quiser
+        // ---------------------------------------------
       } else {
+        // Lógica para Usuário Logado (Mantida igual)
         if (filterMode === 'all') {
           if (publicPropertiesCache.length === 0) {
             fetchAllPublicMarkers();
@@ -388,8 +426,7 @@ const clusteredAlerts = useMemo(() => {
           }
           fetchViewportBoundaries(currentRegion);
         } else { // filterMode === 'mine'
-          // ATUALIZADO: Usa a variável memoizada
-          if (mapProperties !== processedUserProperties) {
+          if (mapProperties !== processedUserProperties) { 
             setMapProperties(processedUserProperties as any);
           }
           setVisibleBoundaries({});
@@ -449,61 +486,61 @@ const clusteredAlerts = useMemo(() => {
     return foundPlusCode;
   };
 
-const globalSearchResults = useMemo(() => {
+  const globalSearchResults = useMemo(() => {
     if (!globalSearchQuery || globalSearchQuery.length < 2) return [];
-    
+
     const term = globalSearchQuery.toLowerCase();
     // Usa o cache de TUDO para filtrar
-    return publicPropertiesCache.filter(p => 
-      p.nome_propriedade?.toLowerCase().includes(term) || 
+    return publicPropertiesCache.filter(p =>
+      p.nome_propriedade?.toLowerCase().includes(term) ||
       p.car_code?.toLowerCase().includes(term)
     ).slice(0, 5); // Limita a 5 resultados para não poluir a tela
   }, [globalSearchQuery, publicPropertiesCache]);
 
-  
 
 
-// Filtra as propriedades baseado na busca (Nome ou CAR)
-const filteredDestinations = useMemo(() => {
-  if (!isRouteListVisible) return [];
 
-  const term = searchQuery.toLowerCase();
-  
-  // Se tiver busca digitada, aumentamos o limite automaticamente para achar o resultado
-  // Se não tiver busca, usa o limite da paginação
-  const limit = term.length > 0 ? 100 : listLimit;
+  // Filtra as propriedades baseado na busca (Nome ou CAR)
+  const filteredDestinations = useMemo(() => {
+    if (!isRouteListVisible) return [];
 
-  const sourceList = isSelectedOwner ? publicPropertiesCache : userProperties;
+    const term = searchQuery.toLowerCase();
 
-  if (!sourceList) return [];
+    // Se tiver busca digitada, aumentamos o limite automaticamente para achar o resultado
+    // Se não tiver busca, usa o limite da paginação
+    const limit = term.length > 0 ? 100 : listLimit;
 
-  const filtered = sourceList.filter(p => {
-    const propId = p.id ?? p.car_code;
-    const isNotSelected = String(propId) !== String(selectedMarkerId);
-    
-    // Se não tiver termo de busca, retorna tudo (respeitando o filtro acima)
-    if (term.length === 0) return isNotSelected;
+    const sourceList = isSelectedOwner ? publicPropertiesCache : userProperties;
 
-    const matchesName = p.nome_propriedade?.toLowerCase().includes(term);
-    const matchesCar = p.car_code?.toLowerCase().includes(term);
+    if (!sourceList) return [];
 
-    return isNotSelected && (matchesName || matchesCar);
-  });
+    const filtered = sourceList.filter(p => {
+      const propId = p.id ?? p.car_code;
+      const isNotSelected = String(propId) !== String(selectedMarkerId);
 
-  // Retorna apenas a fatia atual baseada no limite
-  return filtered.slice(0, limit);
+      // Se não tiver termo de busca, retorna tudo (respeitando o filtro acima)
+      if (term.length === 0) return isNotSelected;
 
-}, [publicPropertiesCache, userProperties, selectedMarkerId, searchQuery, isRouteListVisible, isSelectedOwner, listLimit]); // Adicione listLimit aqui!
+      const matchesName = p.nome_propriedade?.toLowerCase().includes(term);
+      const matchesCar = p.car_code?.toLowerCase().includes(term);
+
+      return isNotSelected && (matchesName || matchesCar);
+    });
+
+    // Retorna apenas a fatia atual baseada no limite
+    return filtered.slice(0, limit);
+
+  }, [publicPropertiesCache, userProperties, selectedMarkerId, searchQuery, isRouteListVisible, isSelectedOwner, listLimit]); // Adicione listLimit aqui!
 
 
-  
+
   // Função que chama o Backend para traçar a rota
-const handleTraceRoute = async (
-    targetId: number | string | null, 
+  const handleTraceRoute = async (
+    targetId: number | string | null,
     useGpsMode: 'GPS_TO_PROP' | 'PROP_TO_GPS' | null = null
-) => {
+  ) => {
     // 1. Definições Iniciais
-    const selectedId = selectedMarkerId; 
+    const selectedId = selectedMarkerId;
     console.log(`🏁 Rota: target=${targetId}, mode=${useGpsMode}, selected=${selectedId}`);
 
     // Limpezas visuais
@@ -526,37 +563,37 @@ const handleTraceRoute = async (
         // Caso A: Sair do GPS -> Ir para Propriedade Selecionada
         // (Ex: Estou na cidade e quero ir pra minha fazenda)
         if (useGpsMode === 'GPS_TO_PROP') {
-            const destId = targetId ? targetId : selectedId; // Se veio da lista usa target, se não usa o selecionado
-            if (!destId) throw new Error("Destino não identificado.");
+          const destId = targetId ? targetId : selectedId; // Se veio da lista usa target, se não usa o selecionado
+          if (!destId) throw new Error("Destino não identificado.");
 
-            params.destinationId = destId;
-            params.userLat = userLocation.latitude;
-            params.userLng = userLocation.longitude;
-            
-            // Visual: Destino é a propriedade
-            setRouteDestinationId(destId);
+          params.destinationId = destId;
+          params.userLat = userLocation.latitude;
+          params.userLng = userLocation.longitude;
+
+          // Visual: Destino é a propriedade
+          setRouteDestinationId(destId);
         }
 
         // Caso B: Sair da Propriedade Selecionada -> Ir para GPS
         // (Ex: Estou na minha fazenda e quero ir para onde meu celular está marcando - raro, mas possível, ou vice-versa na lógica)
         else if (useGpsMode === 'PROP_TO_GPS') {
-            const originId = selectedId; // A origem é o pino clicado
-            if (!originId) throw new Error("Origem não identificada.");
+          const originId = selectedId; // A origem é o pino clicado
+          if (!originId) throw new Error("Origem não identificada.");
 
-            params.originId = originId;
-            params.userLat = userLocation.latitude;
-            params.userLng = userLocation.longitude;
-            
-            // Visual: Origem é a propriedade
-            setRouteOriginId(originId);
+          params.originId = originId;
+          params.userLat = userLocation.latitude;
+          params.userLng = userLocation.longitude;
+
+          // Visual: Origem é a propriedade
+          setRouteOriginId(originId);
         }
-      } 
-      
+      }
+
       // --- MODO 2: Propriedade para Propriedade (Sem GPS) ---
       else if (targetId) {
         // Lógica: Se o pino selecionado é MEU, ele é Origem. Se é do VIZINHO, ele é Destino.
         let originId, destinationId;
-        
+
         if (isSelectedOwner) {
           originId = selectedId;      // Clicou no seu -> Sai dele
           destinationId = targetId;   // Vai para o da lista
@@ -567,7 +604,7 @@ const handleTraceRoute = async (
 
         params.originId = originId;
         params.destinationId = destinationId;
-        
+
         setRouteOriginId(originId);
         setRouteDestinationId(destinationId);
       }
@@ -575,7 +612,7 @@ const handleTraceRoute = async (
       // --- CHAMADA AO BACKEND ---
       console.log("🛣️ Params API:", params);
       const response = await axios.get(`${API_URL}/routes/custom`, {
-        params, 
+        params,
         headers: { Authorization: `Bearer ${authToken}` }
       });
 
@@ -583,12 +620,12 @@ const handleTraceRoute = async (
 
       if (main) {
         const foundRoutes = [main];
-        
+
         // Só adiciona se o backend realmente mandou uma alternativa válida
         if (alternative) {
-            foundRoutes.push(alternative);
+          foundRoutes.push(alternative);
         }
-        
+
         setRoutes(foundRoutes);
 
         // 1. Força o mapa a mostrar TODAS as propriedades (para o destino aparecer)
@@ -596,16 +633,16 @@ const handleTraceRoute = async (
 
         // 2. Garante que os marcadores públicos sejam carregados se ainda não foram
         if (publicPropertiesCache.length === 0) {
-            fetchAllPublicMarkers();
+          fetchAllPublicMarkers();
         }
-        
+
         if (mapViewRef.current && main.path) {
-            setTimeout(() => {
-                mapViewRef.current?.fitToCoordinates(main.path, {
-                    edgePadding: { top: 300, right: 50, bottom: 50, left: 50 },
-                    animated: true,
-                });
-            }, 100);
+          setTimeout(() => {
+            mapViewRef.current?.fitToCoordinates(main.path, {
+              edgePadding: { top: 300, right: 50, bottom: 50, left: 50 },
+              animated: true,
+            });
+          }, 100);
         }
       } else {
         Alert.alert("Aviso", "Nenhuma rota encontrada.");
@@ -617,7 +654,7 @@ const handleTraceRoute = async (
     } finally {
       setIsLoading(false);
     }
-};
+  };
 
   const handleMapPress = (event: MapPressEvent) => { /* ... (código igual anterior) ... */ };
   const handleMarkerPress = async (property: Property) => {
@@ -703,7 +740,7 @@ const handleTraceRoute = async (
   const handleShareProperty = async (property: Property) => {
     try {
       // 1. Define o que será buscado (Plus Code é prioridade, Lat/Lng é fallback)
-      const query = property.plus_code 
+      const query = property.plus_code
         ? encodeURIComponent(property.plus_code) // Codifica caracteres especiais (espaços, +, etc)
         : `${property.latitude},${property.longitude}`;
 
@@ -712,23 +749,23 @@ const handleTraceRoute = async (
 
       // 3. Monta a mensagem bonita
       const message = `📍 *GeoRah - Localização Rural*\n\n` +
-                      `Propriedade: ${property.nome_propriedade}\n` +
-                      `CAR: ${property.car_code}\n\n` +
-                      `Abrir no Maps: ${googleMapsUrl}`;
+        `Propriedade: ${property.nome_propriedade}\n` +
+        `CAR: ${property.car_code}\n\n` +
+        `Abrir no Maps: ${googleMapsUrl}`;
 
       // 4. Abre o menu nativo de compartilhamento
       await Share.share({
         message: message,
         // title é usado principalmente no Android como título do dialog
-        title: `Localização: ${property.nome_propriedade}`, 
+        title: `Localização: ${property.nome_propriedade}`,
       });
-      
+
     } catch (error) {
       Alert.alert("Erro", "Não foi possível compartilhar.");
     }
   };
 
-const handleGlobalSearchSelection = (property: Property) => {
+  const handleGlobalSearchSelection = (property: Property) => {
     // 1. Limpa a busca e fecha o teclado
     setGlobalSearchQuery('');
     setIsGlobalSearchFocused(false);
@@ -736,19 +773,19 @@ const handleGlobalSearchSelection = (property: Property) => {
 
     // 2. Foca o mapa na propriedade encontrada
     const propId = property.id ?? property.car_code;
-    
+
     // Pequeno delay para garantir que a UI limpe antes da animação
     setTimeout(() => {
-        setSelectedMarkerId(propId); // Seleciona o pino (faz aparecer o painel inferior)
-        
-        if (mapViewRef.current) {
-          mapViewRef.current.animateToRegion({
-            latitude: property.latitude,
-            longitude: property.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          }, 1000);
-        }
+      setSelectedMarkerId(propId); // Seleciona o pino (faz aparecer o painel inferior)
+
+      if (mapViewRef.current) {
+        mapViewRef.current.animateToRegion({
+          latitude: property.latitude,
+          longitude: property.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        }, 1000);
+      }
     }, 100);
   };
 
@@ -760,11 +797,11 @@ const handleGlobalSearchSelection = (property: Property) => {
 
   const fetchAlerts = useCallback(async () => {
     if (!currentRegion) return;
-    
+
     try {
       const response = await axios.get(`${API_URL}/alerts`, {
-        params: { 
-          lat: currentRegion.latitude, 
+        params: {
+          lat: currentRegion.latitude,
           lng: currentRegion.longitude,
           radius: 50 // Raio de 50km
         }
@@ -797,10 +834,10 @@ const handleGlobalSearchSelection = (property: Property) => {
         lng: userLocation.longitude,
         type
       });
-      
+
       Alert.alert("Obrigado!", "Seu alerta foi reportado para outros motoristas.");
       setIsAlertModalVisible(false);
-      fetchAlerts(); 
+      fetchAlerts();
     } catch (error: any) {
       // --- TRATAMENTO DE ERRO ESPECÍFICO (409) ---
       if (error.response && error.response.status === 409) {
@@ -815,23 +852,23 @@ const handleGlobalSearchSelection = (property: Property) => {
   };
 
   // Função para selecionar e enviar foto
-const handlePickImage = async (propertyId: number) => {
+  const handlePickImage = async (propertyId: number) => {
     // 1. Pede permissão e abre galeria
     const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.5, // Qualidade média para não pesar o upload
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.5, // Qualidade média para não pesar o upload
     });
 
     if (!result.canceled) {
-        uploadImage(result.assets[0].uri, propertyId);
+      uploadImage(result.assets[0].uri, propertyId);
     }
-};
+  };
 
-const uploadImage = async (uri: string, propertyId: number) => {
+  const uploadImage = async (uri: string, propertyId: number) => {
     setIsUploadingPhoto(true);
-    
+
     // 2. Prepara o formulário (FormData) para envio de arquivo
     const formData = new FormData();
     const filename = uri.split('/').pop();
@@ -842,26 +879,159 @@ const uploadImage = async (uri: string, propertyId: number) => {
     formData.append('photo', { uri, name: filename, type } as any);
 
     try {
-        const response = await axios.post(`${API_URL}/properties/${propertyId}/photo`, formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data', // Obrigatório para arquivos
-                Authorization: `Bearer ${authToken}`
-            }
-        });
+      const response = await axios.post(`${API_URL}/properties/${propertyId}/photo`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data', // Obrigatório para arquivos
+          Authorization: `Bearer ${authToken}`
+        }
+      });
 
-        Alert.alert("Sucesso", "Foto da propriedade atualizada!");
-        
-        // 3. Atualiza os dados locais para a foto aparecer na hora
-        fetchProperties(); 
-        fetchAllPublicMarkers(true);
+      Alert.alert("Sucesso", "Foto da propriedade atualizada!");
+
+      // 3. Atualiza os dados locais para a foto aparecer na hora
+      fetchProperties();
+      fetchAllPublicMarkers(true);
 
     } catch (error) {
-        console.error("Erro upload:", error);
-        Alert.alert("Erro", "Falha ao enviar a imagem.");
+      console.error("Erro upload:", error);
+      Alert.alert("Erro", "Falha ao enviar a imagem.");
     } finally {
-        setIsUploadingPhoto(false);
+      setIsUploadingPhoto(false);
     }
-};
+  };
+
+const handleUpdateLocation = async (property: Property, newCoordinate: LatLng) => {
+    // Tenta pegar o boundary do objeto (Modo "Minhas")
+    // Se não tiver, pega do cache visual (Modo "Todas")
+    let rawBoundary = property.boundary;
+    
+    // Se rawBoundary for nulo/vazio E tivermos o ID no visibleBoundaries
+    if (!rawBoundary && property.id && visibleBoundaries[property.id]) {
+      rawBoundary = visibleBoundaries[property.id];
+    }
+
+    const boundaryCoords = parseBoundaryToLatLng(rawBoundary, property.car_code);
+
+    if (boundaryCoords.length > 2) {
+      const isInside = isPointInPolygon(newCoordinate, boundaryCoords);
+      
+      if (!isInside) {
+        Alert.alert("Local Inválido", "O ponto de entrada deve ficar dentro dos limites da sua propriedade.");
+        setDragResetTrigger(prev => prev + 1); 
+        return;
+      }
+    } else {
+      Alert.alert("Atenção", "Aproxime o zoom para carregar os limites da propriedade antes de editar.");
+      setDragResetTrigger(prev => prev + 1);
+      return;
+    }
+
+    Alert.alert(
+      "Nova Localização",
+      "Deseja definir este ponto como a entrada principal?",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel",
+          onPress: () => setDragResetTrigger(prev => prev + 1) 
+        },
+        {
+          text: "Confirmar",
+          onPress: async () => {
+            try {
+              await axios.patch(`${API_URL}/properties/${property.id}/location`, {
+                latitude: newCoordinate.latitude,
+                longitude: newCoordinate.longitude
+              }, {
+                headers: { Authorization: `Bearer ${authToken}` }
+              });
+
+              Alert.alert("Sucesso", "Localização atualizada!");
+
+              fetchProperties();
+              
+              // Atualiza cache público
+              setPublicPropertiesCache(prev => prev.map(p => 
+                p.id === property.id 
+                  ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } 
+                  : p
+              ));
+              
+              // Atualiza visualização atual
+              setMapProperties(prev => prev.map(p => 
+                p.id === property.id 
+                  ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } 
+                  : p
+              ));
+              
+              fetchAllPublicMarkers(true);
+
+              const pCode = await getPlusCodeFromCoordinates(newCoordinate.latitude, newCoordinate.longitude);
+              if (pCode) {
+                axios.patch(`${API_URL}/properties/public/${property.id}/pluscode`, { plus_code: pCode });
+              }
+
+            } catch (error) {
+              console.error(error);
+              Alert.alert("Erro", "Falha ao atualizar localização.");
+              setDragResetTrigger(prev => prev + 1);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // ----- Renderização -----
+
+const propertiesToRender = useMemo(() => {
+    if (!currentRegion) return [];
+
+    const zoom = currentRegion.latitudeDelta;
+    
+    // Verifica os níveis de zoom
+    const canShowPolygons = zoom < POLYGON_VISIBILITY_ZOOM_THRESHOLD;
+    const canShowMarkers = zoom < MARKER_VISIBILITY_ZOOM_THRESHOLD;
+    const hasActiveRoute = routes.length > 0;
+
+    // 1. TRAVA GLOBAL: Se estiver longe, sem rota e sem permissão de zoom, limpa tudo.
+    if (!canShowPolygons && !canShowMarkers && !hasActiveRoute) {
+      return [];
+    }
+
+    // 2. FILTRAGEM
+    return mapProperties.filter(prop => {
+      const propId = prop.id ?? prop.car_code;
+      
+      // Regra 1: O Marcador Selecionado SEMPRE aparece (para o painel não fechar/bugar)
+      if (String(selectedMarkerId) === String(propId)) return true;
+
+      // --- CORREÇÃO AQUI ---
+      // Regra 2: MODO ROTA (Exclusivo)
+      if (hasActiveRoute) {
+         const isOrigin = String(propId) === String(routeOriginId);
+         const isDest = String(propId) === String(routeDestinationId);
+         
+         // Se for Origem ou Destino, mostra.
+         // Se não for, ESCONDE IMEDIATAMENTE (não deixa cair na regra de baixo)
+         return isOrigin || isDest;
+      }
+      
+      // Regra 3: MODO PADRÃO (Exploração)
+      // Só executa se NÃO tiver rota ativa
+      return isMarkerVisible({ latitude: prop.latitude, longitude: prop.longitude }, currentRegion);
+    });
+
+  }, [mapProperties, currentRegion, routes, routeOriginId, routeDestinationId, selectedMarkerId, dragResetTrigger]);
+
+  if (!initialMapRegion) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#007BFF" />
+        <Text style={{ marginTop: 10, color: '#666' }}>Buscando sua localização GPS...</Text>
+      </View>
+    );
+  }
 
   // ----- Renderização -----
   return (
@@ -870,19 +1040,20 @@ const uploadImage = async (uri: string, propertyId: number) => {
         ref={mapViewRef}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
-        initialRegion={initialRegion}
-        mapPadding={{ top: 320, right: 20, bottom: 20, left: 20 }}
+        initialRegion={initialMapRegion} // Garante que inicia na localização carregada
+        showsUserLocation={true}         // Ativa a bolinha nativa do Google
+        showsMyLocationButton={false}    // Esconde o botão nativo (pois você tem o seu)
+        mapPadding={{ top: 20, right: 20, bottom: 20, left: 20 }}
         onPress={handleMapPress}
         onRegionChangeComplete={(region: Region) => {
-          setCurrentRegion(region); // Atualiza o estado da região
-          // Se estiver no modo 'all', busca os POLÍGONOS da nova região
+          setCurrentRegion(region);
           if (filterMode === 'all') {
             fetchViewportBoundaries(region);
           }
         }}
       >
 
-{/* --- RENDERIZAÇÃO DOS ALERTAS (SÓ NA ROTA) --- */}
+        {/* --- RENDERIZAÇÃO DOS ALERTAS (SÓ NA ROTA) --- */}
         {routes.length > 0 && clusteredAlerts.map((cluster, index) => {
           const mainAlert = cluster[0];
           const config = ALERT_CONFIG[mainAlert.type];
@@ -892,24 +1063,24 @@ const uploadImage = async (uri: string, propertyId: number) => {
             <Marker
               key={`alert-${index}`}
               coordinate={{ latitude: mainAlert.lat, longitude: mainAlert.lng }}
-              zIndex={200} 
-              anchor={{ x: 0.5, y: 0.5 }} 
+              zIndex={200}
+              anchor={{ x: 0.5, y: 0.5 }}
               onPress={() => setSelectedClusterAlerts(cluster)}
               tracksViewChanges={true}
             >
               {/* Container transparente para alinhar */}
               <View style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-                
+
                 {/* 1. Ícone Principal */}
                 <View style={{
-                  width: 32, 
-                  height: 32, 
+                  width: 32,
+                  height: 32,
                   borderRadius: 16,
                   backgroundColor: config.color,
-                  justifyContent: 'center', 
+                  justifyContent: 'center',
                   alignItems: 'center',
-                  borderWidth: 2, 
-                  borderColor: 'white', 
+                  borderWidth: 2,
+                  borderColor: 'white',
                   elevation: 2, // Elevação menor (fica atrás)
                   shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 2,
                   zIndex: 1
@@ -920,16 +1091,16 @@ const uploadImage = async (uri: string, propertyId: number) => {
                 {/* 2. Badge Contador (CORRIGIDO) */}
                 {count > 1 && (
                   <View style={{
-                    position: 'absolute', 
+                    position: 'absolute',
                     top: -4,   // Sobe um pouco para fora do ícone
                     right: -4, // Vai para a direita para fora do ícone
                     backgroundColor: '#D32F2F', // Vermelho vivo
                     borderRadius: 10, // Bem redondo
                     minWidth: 22, // Largura mínima garantida
-                    height: 20, 
-                    justifyContent: 'center', 
+                    height: 20,
+                    justifyContent: 'center',
                     alignItems: 'center',
-                    borderWidth: 2, 
+                    borderWidth: 2,
                     borderColor: 'white',
                     elevation: 10, // <--- O SEGREDO: Elevação bem maior que a do ícone
                     zIndex: 10     // <--- Garante que fica na frente no iOS
@@ -943,10 +1114,11 @@ const uploadImage = async (uri: string, propertyId: number) => {
             </Marker>
           );
         })}
-        
+
         {/* Marcador azul (nova propriedade) */}
         {clickedLocation && !isDrawing && (
           <Marker
+          
             coordinate={clickedLocation} pinColor="blue" draggable title="Novo Local" description={plusCode || "Arraste"}
             onDragEnd={(e) => {
               const newCoords = e.nativeEvent.coordinate;
@@ -955,164 +1127,83 @@ const uploadImage = async (uri: string, propertyId: number) => {
             }}
           />
         )}
-        {userLocation && (
-          <Marker
-            coordinate={userLocation}
-            anchor={{ x: 0.5, y: 0.5 }} // Mantém o centro exato
-            zIndex={999}
-          >
-            <View style={styles.userLocationDot} />
-          </Marker>
-        )}
         {/* Marcadores e Polígonos (Filtrados por ZOOM e VIEWPORT) */}
         {/* CORREÇÃO: Adicionada condição de zoom para os MARCADORES */}
-        {currentRegion && (routes.length > 0 || currentRegion.latitudeDelta < MARKER_VISIBILITY_ZOOM_THRESHOLD) && (
-          mapProperties
-            .filter(prop => {
-              // MODO ROTA: Se tiver rota ativa
-              if (routes.length > 0) {
-                 // 1. Normaliza o ID da propriedade (mesma lógica do clique)
-                 const propId = prop.id ?? prop.car_code;
-                 
-                 // 2. Verifica se é Origem ou Destino (Comparação segura de String)
-                 const isOrigin = routeOriginId ? String(propId) === String(routeOriginId) : false;
-                 const isDest = routeDestinationId ? String(propId) === String(routeDestinationId) : false;
-                 
-                 // Se for qualquer um dos dois, mostra!
-                 return isOrigin || isDest;
-              }
+{propertiesToRender.map((prop) => {
+             // 1. Definições
+             const propId = prop.id ?? prop.car_code ?? `${prop.latitude}_${prop.longitude}`;
+             const isSelected = String(selectedMarkerId) === String(propId);
+             const isOwner = userPropertyIds.has(prop.id);
+             
+             // --- AQUI ESTÁ A MÁGICA ---
+             // Verifica se esta propriedade faz parte da rota ativa (Origem ou Destino)
+             const isRoutePoint = routes.length > 0 && (
+                String(propId) === String(routeOriginId) || 
+                String(propId) === String(routeDestinationId)
+             );
 
-              // MODO EXPLORAÇÃO (Sem rota)
-              return isMarkerVisible({ latitude: prop.latitude, longitude: prop.longitude }, currentRegion);
-           })
-            .map((prop) => {
-              const propId = prop.id ?? prop.car_code ?? `${prop.latitude}_${prop.longitude}`;
-              const coord: LatLng = { latitude: prop.latitude, longitude: prop.longitude };
-              const isSelected = selectedMarkerId === propId;
-              // Condição de zoom para polígonos (mais perto)
-              const shouldRenderPolygon = currentRegion.latitudeDelta < POLYGON_VISIBILITY_ZOOM_THRESHOLD;
-              const isOwner = userPropertyIds.has(prop.id);
-              const markerColor = isOwner ? "blue" : "green"; // 'blue' para o dono, 'green' para outros
-              const polygonStrokeColor = isOwner ? "rgba(0, 0, 255, 0.5)" : "rgba(0, 100, 0, 0.5)";
-              const polygonFillColor = isOwner ? "rgba(0, 0, 255, 0.15)" : "rgba(0, 100, 0, 0.15)";
-              // --- FIM DA NOVA LÓGICA DE COR ---
-              // Busca o polígono no cache 'visibleBoundaries'
-              let boundaryData = visibleBoundaries[prop.id];
+             // 2. Regras de Visibilidade
+             const zoom = currentRegion!.latitudeDelta;
+             
+             // Regra Polígono: Mostra se o zoom for médio OU se for ponto da rota (ignora zoom)
+             const shouldShowPolygon = isRoutePoint || (zoom < POLYGON_VISIBILITY_ZOOM_THRESHOLD);
+             
+             // Regra Marcador: Mostra se o zoom for perto OU Selecionado OU ponto da rota (ignora zoom)
+             const shouldShowMarker = isRoutePoint || isSelected || (zoom < MARKER_VISIBILITY_ZOOM_THRESHOLD);
 
-              if (!boundaryData && prop.boundary) {
-                boundaryData = prop.boundary;
-              }
-
-              // Processa o polígono SOMENTE se ele foi encontrado no cache
-              const polygonCoords = (shouldRenderPolygon && boundaryData)
+             // 3. Preparação de Dados
+             const coord = { latitude: prop.latitude, longitude: prop.longitude };
+             
+             // Busca boundary
+             let boundaryData = visibleBoundaries[prop.id];
+             if (!boundaryData && prop.boundary) boundaryData = prop.boundary;
+             
+             // Processa geometria
+             const polygonCoords = (shouldShowPolygon && boundaryData)
                 ? parseBoundaryToLatLng(boundaryData, String(prop.car_code))
                 : [];
 
-              if (isNaN(coord.latitude) || isNaN(coord.longitude)) return null;
+             // Cores
+             const markerColor = isOwner ? "blue" : "green";
+             const polygonStrokeColor = isOwner ? "rgba(0, 0, 255, 0.5)" : "rgba(0, 100, 0, 0.5)";
+             const polygonFillColor = isOwner ? "rgba(0, 0, 255, 0.15)" : "rgba(0, 100, 0, 0.15)";
 
-              return (
-                <React.Fragment key={propId}>
-                  <Marker
-                    identifier={propId.toString()} // ID único para o marcador
-                    coordinate={coord}             // Coordenadas do centroide
-                    pinColor={markerColor}         // Cor dinâmica (azul para dono, verde para outros)
-                    title={String(prop.nome_propriedade ?? "Propriedade")} // Título padrão do marcador (pode aparecer em algumas interações)
-                    description={`Plus Code: ${prop.plus_code ?? (isSelected ? selectedMarkerPlusCode ?? '...' : '...')}`}
-                    zIndex={isSelected ? 1 : 0} // Coloca o marcador selecionado acima
-                    // 1. Só permite arrastar se for o dono
-                    draggable={isOwner}
-                    onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); setSelectedMarkerId(prop.id); }}
-                    onDeselect={() => { if (isSelected) { setSelectedMarkerId(null); setSelectedMarkerPlusCode(null); } }}
+             return (
+                <React.Fragment key={`${prop.id ?? prop.car_code}-${dragResetTrigger}`}>
+                  
+                  {shouldShowMarker && (
+                      <Marker
+                        identifier={propId.toString()}
+                        coordinate={coord}
+                        pinColor={markerColor}
+                        title={String(prop.nome_propriedade ?? "Propriedade")}
+                        description={prop.plus_code || "Sem código"}
+                        zIndex={isSelected || isRoutePoint ? 10 : 1} // Rota/Selecionado sempre no topo
+                        draggable={isOwner} 
+                        // Performance: Rota e Selecionado podem atualizar, os outros ficam estáticos
+                        tracksViewChanges={isSelected || isRoutePoint} 
+                        onDragEnd={(e) => {
+                                          const newCoords = e.nativeEvent.coordinate;
+                                          handleUpdateLocation(prop, newCoords);
+                        }}
+                        onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
+                      />
+                  )}
 
-                    onDragEnd={async (e) => {
-                      const newCoordinate = e.nativeEvent.coordinate;
-                      let boundaryToValidate = prop.boundary;
-
-                      // 1. Tenta pegar do cache de polígonos visíveis
-                      if (!boundaryToValidate) {
-                        boundaryToValidate = visibleBoundaries[prop.id];
-                      }
-                      if (!boundaryToValidate) {
-                        const userProp = userProperties.find(p => p.id === prop.id);
-                        if (userProp) {
-                          boundaryToValidate = userProp.boundary;
-                        }
-                      }
-
-                      const polygonCoords = parseBoundaryToLatLng(boundaryToValidate, String(prop.car_code));
-                      // B. Validação Matemática (Etapa 2)
-                      // Se tiver polígono e o ponto estiver FORA dele:
-                      if (polygonCoords.length > 2 && !isPointInPolygon(newCoordinate, polygonCoords)) {
-                        Alert.alert("Movimento Inválido", "O ponto de entrada deve ficar DENTRO dos limites da propriedade.");
-                        // Força uma re-renderização para o pino voltar para a posição original (visual snap-back)
-                        setMapProperties([...mapProperties]);
-                        return;
-                      }
-
-                      // C. Confirmação e Salvamento (Etapa 1)
-                      Alert.alert(
-                        "Definir Entrada",
-                        "Deseja definir este ponto como a nova entrada da propriedade?",
-                        [
-                          {
-                            text: "Reverter", // Texto mais claro
-                            style: "cancel", // Estilo cancel (na esquerda)
-                            onPress: () => setMapProperties([...mapProperties]) // Reverte a posição do pino
-                          },
-                          {
-                            text: "Confirmar", // Texto de confirmação
-                            style: "default", // Força estilo padrão no Android (na direita)
-                            onPress: async () => {
-                              try {
-                                // Chama a API (o bloco de salvamento que você já tem)
-                                await axios.patch(`${API_URL}/properties/${prop.id}/location`,
-                                  { latitude: newCoordinate.latitude, longitude: newCoordinate.longitude },
-                                  { headers: { Authorization: `Bearer ${authToken}` } }
-                                );
-
-                                // Lógica de atualização de estado (já corrigida)
-                                const updatedProps = mapProperties.map(p =>
-                                  p.id === prop.id 
-                                    ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } 
-                                    : p
-                                );
-                                setMapProperties(updatedProps);
-                                setPublicPropertiesCache(prev => prev.map(p =>
-                                  p.id === prop.id ? { ...p, latitude: newCoordinate.latitude, longitude: newCoordinate.longitude } : p
-                                ));
-                                fetchProperties();
-                                if (filterMode === 'all') { setPublicPropertiesCache(updatedProps); }
-
-                                Alert.alert("Sucesso", "Ponto de entrada atualizado.");
-
-                              } catch (error) {
-                                console.error(error);
-                                Alert.alert("Erro", "Não foi possível atualizar a localização.");
-                                setMapProperties([...mapProperties]); // Reverte em caso de erro
-                              }
-                            }
-                          }
-                        ]
-                      );
-                    }}
-                  >
-                  </Marker>
-                  {/* 4. Renderiza o polígono se as condições forem atendidas */}
-                  {shouldRenderPolygon && polygonCoords.length > 0 && (
+                  {shouldShowPolygon && polygonCoords.length > 2 && (
                     <Polygon
-                      coordinates={polygonCoords} // Usa o array recém-parseado
+                      coordinates={polygonCoords}
                       strokeColor={polygonStrokeColor}
                       fillColor={polygonFillColor}
-                      strokeWidth={1.5}
+                      // Destaque visual: Se for rota, borda mais grossa (3), senão normal (1.5)
+                      strokeWidth={isRoutePoint ? 3 : 1.5} 
                       tappable
                       onPress={(e) => { e.stopPropagation(); handleMarkerPress(prop); }}
                     />
                   )}
                 </React.Fragment>
-              );
-            })
-        )}
-        {/* Fim do bloco condicional de marcadores/polígonos */}
+             );
+        })}
 
         {/* RENDERIZA AS LINHAS DA ROTA */}
         {routes.map((route, index) => {
@@ -1120,7 +1211,7 @@ const uploadImage = async (uri: string, propertyId: number) => {
           return (
             <Polyline
               // MUDANÇA AQUI: A key muda quando seleciona, forçando a atualização da cor
-              key={`${index}-${isSelected ? 'selected' : 'unselected'}`} 
+              key={`${index}-${isSelected ? 'selected' : 'unselected'}`}
               coordinates={route.path}
               // Rota Selecionada = Laranja (#FF5722) | Não Selecionada = Cinza (#90A4AE)
               strokeColor={isSelected ? "#FF5722" : "#90A4AE"}
@@ -1136,265 +1227,265 @@ const uploadImage = async (uri: string, propertyId: number) => {
       </MapView>
 
       {/* --- BARRA DE PESQUISA FLUTUANTE (GLOBAL) --- */}
-    {!isRouteListVisible && routes.length === 0 && (
-      <View style={styles.searchBarContainer}>
-        <View style={styles.searchBarInputContainer}>
-          <FontAwesome name="search" size={20} color="#666" style={{ marginRight: 10 }} />
-          <TextInput
-            style={styles.searchBarInput}
-            placeholder="Buscar propriedade ou CAR..."
-            placeholderTextColor="#999"
-            value={globalSearchQuery}
-            onChangeText={setGlobalSearchQuery}
-            onFocus={() => setIsGlobalSearchFocused(true)}
-            onBlur={() => {
-               // Pequeno delay para permitir o clique na lista antes de fechar
-               setTimeout(() => setIsGlobalSearchFocused(false), 200); 
-            }}
-          />
-          {globalSearchQuery.length > 0 && (
-            <Pressable onPress={() => { setGlobalSearchQuery(''); Keyboard.dismiss(); }}>
-              <FontAwesome name="times-circle" size={20} color="#999" />
-            </Pressable>
-          )}
-        </View>
-
-        {/* LISTA DE RESULTADOS (Dropdown) */}
-        {isGlobalSearchFocused && globalSearchResults.length > 0 && (
-          <View style={styles.searchResultsContainer}>
-            <FlatList
-              data={globalSearchResults} // Usa a lista que já tem paginação no useMemo
-              keyExtractor={(item) => String(item.id)}
-              keyboardShouldPersistTaps="handled"
-              
-              // 1. Paginação Infinita na Barra
-              onEndReached={() => setListLimit(prev => prev + 20)} 
-              onEndReachedThreshold={0.5} 
-              
-              // 2. Loading no final
-              ListFooterComponent={
-                globalSearchResults.length >= listLimit ? (
-                  <ActivityIndicator size="small" color="#999" style={{ marginVertical: 10 }} />
-                ) : null
-              }
-
-              // 3. Renderização dos Itens
-              renderItem={({ item }) => {
-                const isMine = userPropertyIds.has(item.id);
-                const iconColor = isMine ? '#2196F3' : '#4CAF50';
-                const iconName = isMine ? "home" : "map-marker";
-
-                return (
-                  <Pressable
-                    style={styles.searchResultItem}
-                    onPress={() => handleGlobalSearchSelection(item)}
-                  >
-                    <View style={[styles.searchResultIcon, { backgroundColor: iconColor }]}>
-                      <FontAwesome name={iconName} size={16} color="#FFF" />
-                    </View>
-                    
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.searchResultTitle}>{item.nome_propriedade}</Text>
-                      <Text style={styles.searchResultSubtitle}>
-                        {isMine ? "Minha Propriedade" : item.car_code}
-                      </Text>
-                    </View>
-                    <FontAwesome name="search" size={14} color="#ccc" />
-                  </Pressable>
-                );
+      {!isRouteListVisible && routes.length === 0 && (
+        <View style={styles.searchBarContainer}>
+          <View style={styles.searchBarInputContainer}>
+            <FontAwesome name="search" size={20} color="#666" style={{ marginRight: 10 }} />
+            <TextInput
+              style={styles.searchBarInput}
+              placeholder="Buscar propriedade ou CAR..."
+              placeholderTextColor="#999"
+              value={globalSearchQuery}
+              onChangeText={setGlobalSearchQuery}
+              onFocus={() => setIsGlobalSearchFocused(true)}
+              onBlur={() => {
+                // Pequeno delay para permitir o clique na lista antes de fechar
+                setTimeout(() => setIsGlobalSearchFocused(false), 200);
               }}
             />
+            {globalSearchQuery.length > 0 && (
+              <Pressable onPress={() => { setGlobalSearchQuery(''); Keyboard.dismiss(); }}>
+                <FontAwesome name="times-circle" size={20} color="#999" />
+              </Pressable>
+            )}
           </View>
-        )}
-      </View>
-    )}
-    
-{/* --- 1. PAINEL DE DETALHES (ESTILO GOOGLE MAPS / AIRBNB) --- */}
-      {selectedMarkerId && routes.length === 0 && (
-        <View style={styles.bottomSheetContainer}>
-           
-           {(() => {
-             const selectedProp = mapProperties.find(p => (p.id ?? p.car_code) === selectedMarkerId);
-             if (!selectedProp) return <ActivityIndicator color="#007BFF" style={{margin: 20}} />;
-             
-             const isOwner = userPropertyIds.has(selectedProp.id);
 
-             return (
-               <>
-{/* 1. IMAGEM GRANDE NO TOPO (CLICÁVEL PARA ZOOM) */}
-                 <Pressable 
-                    style={styles.bigImagePlaceholder}
-                    onPress={() => {
-                        if (selectedProp.photo_url) setIsFullScreenImageVisible(true);
-                    }}
-                 >
-                    
-                    {selectedProp.photo_url ? (
-                        <Image 
-                           source={{ uri: `${API_URL}/${selectedProp.photo_url}` }} 
-                           style={{ width: '100%', height: '100%' }}
-                           resizeMode="cover"
-                        />
-                    ) : (
-                        // Placeholder estático (sem texto de "toque para editar")
-                        <>
-                           <FontAwesome name="image" size={40} color="#ccc" />
-                           <Text style={{color: '#999', marginTop: 8, fontSize: 12}}>
-                              Sem foto disponível
-                           </Text>
-                        </>
-                    )}
+          {/* LISTA DE RESULTADOS (Dropdown) */}
+          {isGlobalSearchFocused && globalSearchResults.length > 0 && (
+            <View style={styles.searchResultsContainer}>
+              <FlatList
+                data={globalSearchResults} // Usa a lista que já tem paginação no useMemo
+                keyExtractor={(item) => String(item.id)}
+                keyboardShouldPersistTaps="handled"
 
-                    {/* Botão Fechar do Painel (X) */}
-                    <Pressable 
-                        onPress={() => setSelectedMarkerId(null)} 
-                        style={styles.closeButtonFloating}
+                // 1. Paginação Infinita na Barra
+                onEndReached={() => setListLimit(prev => prev + 20)}
+                onEndReachedThreshold={0.5}
+
+                // 2. Loading no final
+                ListFooterComponent={
+                  globalSearchResults.length >= listLimit ? (
+                    <ActivityIndicator size="small" color="#999" style={{ marginVertical: 10 }} />
+                  ) : null
+                }
+
+                // 3. Renderização dos Itens
+                renderItem={({ item }) => {
+                  const isMine = userPropertyIds.has(item.id);
+                  const iconColor = isMine ? '#2196F3' : '#4CAF50';
+                  const iconName = isMine ? "home" : "map-marker";
+
+                  return (
+                    <Pressable
+                      style={styles.searchResultItem}
+                      onPress={() => handleGlobalSearchSelection(item)}
                     >
-                        <FontAwesome name="times" size={16} color="#555" />
-                    </Pressable>
-                    
-                    {/* Ícone de Zoom (Lupa) se tiver foto - Dica visual */}
-                    {selectedProp.photo_url && (
-                        <View style={styles.zoomIconBadge}>
-                            <FontAwesome name="search-plus" size={14} color="white" />
-                        </View>
-                    )}
-                 </Pressable>
+                      <View style={[styles.searchResultIcon, { backgroundColor: iconColor }]}>
+                        <FontAwesome name={iconName} size={16} color="#FFF" />
+                      </View>
 
-                 {/* 2. CONTEÚDO (TEXTOS E BOTÕES) */}
-                 <View style={styles.sheetContent}>
-                    
-                    {/* Alça visual pequena */}
-                    <View style={styles.bottomSheetHandle} />
-
-                    <View style={{ marginBottom: 20 }}>
-                        <Text style={styles.sheetTitle} numberOfLines={1}>
-                            {selectedProp.nome_propriedade}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.searchResultTitle}>{item.nome_propriedade}</Text>
+                        <Text style={styles.searchResultSubtitle}>
+                          {isMine ? "Minha Propriedade" : item.car_code}
                         </Text>
-                        <Text style={styles.sheetSubtitle}>CAR: {selectedProp.car_code}</Text>
-                        {selectedProp.plus_code && (
-                           <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 4}}>
-                              <FontAwesome name="map-marker" size={12} color="#1A73E8" style={{marginRight: 4}} />
-                              <Text style={styles.sheetMeta}>{selectedProp.plus_code}</Text>
-                           </View>
-                        )}
-                    </View>
-
-                    {/* --- AÇÕES --- */}
-                    <View style={styles.sheetActions}>
-                        
-                        {/* Botão 1: ROTAS (Azul) */}
-                        <Pressable 
-                          style={[styles.sheetActionButton, { backgroundColor: '#4285F4' }]}
-                          onPress={() => setIsRouteListVisible(true)}
-                        >
-                           <FontAwesome name="map-signs" size={18} color="white" />
-                           <Text style={[styles.sheetActionText, { color: 'white' }]}>Traçar Rotas</Text>
-                        </Pressable>
-
-                        {/* Botão 2: ENVIAR / COMPARTILHAR (Cinza) - AGORA PARA TODOS */}
-                        <Pressable 
-                          style={[styles.sheetActionButton, { backgroundColor: '#F1F3F4' }]}
-                          // Chama a função de compartilhar direto, sem verificar se é dono
-                          onPress={() => handleShareProperty(selectedProp)}
-                        >
-                           <FontAwesome name="share-alt" size={18} color="#3C4043" />
-                           <Text style={[styles.sheetActionText, { color: '#3C4043' }]}>
-                             Enviar
-                           </Text>
-                        </Pressable>
-
-                    </View>
-                 </View>
-               </>
-             );
-           })()}
+                      </View>
+                      <FontAwesome name="search" size={14} color="#ccc" />
+                    </Pressable>
+                  );
+                }}
+              />
+            </View>
+          )}
         </View>
       )}
 
-{/* --- 2. CARD DE INFORMAÇÕES DA ROTA (COM SELETOR) --- */}
+      {/* --- 1. PAINEL DE DETALHES (ESTILO GOOGLE MAPS / AIRBNB) --- */}
+      {selectedMarkerId && routes.length === 0 && (
+        <View style={styles.bottomSheetContainer}>
+
+          {(() => {
+            const selectedProp = mapProperties.find(p => (p.id ?? p.car_code) === selectedMarkerId);
+            if (!selectedProp) return <ActivityIndicator color="#007BFF" style={{ margin: 20 }} />;
+
+            const isOwner = userPropertyIds.has(selectedProp.id);
+
+            return (
+              <>
+                {/* 1. IMAGEM GRANDE NO TOPO (CLICÁVEL PARA ZOOM) */}
+                <Pressable
+                  style={styles.bigImagePlaceholder}
+                  onPress={() => {
+                    if (selectedProp.photo_url) setIsFullScreenImageVisible(true);
+                  }}
+                >
+
+                  {selectedProp.photo_url ? (
+                    <Image
+                      source={{ uri: `${API_URL}/${selectedProp.photo_url}` }}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    // Placeholder estático (sem texto de "toque para editar")
+                    <>
+                      <FontAwesome name="image" size={40} color="#ccc" />
+                      <Text style={{ color: '#999', marginTop: 8, fontSize: 12 }}>
+                        Sem foto disponível
+                      </Text>
+                    </>
+                  )}
+
+                  {/* Botão Fechar do Painel (X) */}
+                  <Pressable
+                    onPress={() => setSelectedMarkerId(null)}
+                    style={styles.closeButtonFloating}
+                  >
+                    <FontAwesome name="times" size={16} color="#555" />
+                  </Pressable>
+
+                  {/* Ícone de Zoom (Lupa) se tiver foto - Dica visual */}
+                  {selectedProp.photo_url && (
+                    <View style={styles.zoomIconBadge}>
+                      <FontAwesome name="search-plus" size={14} color="white" />
+                    </View>
+                  )}
+                </Pressable>
+
+                {/* 2. CONTEÚDO (TEXTOS E BOTÕES) */}
+                <View style={styles.sheetContent}>
+
+                  {/* Alça visual pequena */}
+                  <View style={styles.bottomSheetHandle} />
+
+                  <View style={{ marginBottom: 20 }}>
+                    <Text style={styles.sheetTitle} numberOfLines={1}>
+                      {selectedProp.nome_propriedade}
+                    </Text>
+                    <Text style={styles.sheetSubtitle}>CAR: {selectedProp.car_code}</Text>
+                    {selectedProp.plus_code && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                        <FontAwesome name="map-marker" size={12} color="#1A73E8" style={{ marginRight: 4 }} />
+                        <Text style={styles.sheetMeta}>{selectedProp.plus_code}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* --- AÇÕES --- */}
+                  <View style={styles.sheetActions}>
+
+                    {/* Botão 1: ROTAS (Azul) */}
+                    <Pressable
+                      style={[styles.sheetActionButton, { backgroundColor: '#4285F4' }]}
+                      onPress={() => setIsRouteListVisible(true)}
+                    >
+                      <FontAwesome name="map-signs" size={18} color="white" />
+                      <Text style={[styles.sheetActionText, { color: 'white' }]}>Traçar Rotas</Text>
+                    </Pressable>
+
+                    {/* Botão 2: ENVIAR / COMPARTILHAR (Cinza) - AGORA PARA TODOS */}
+                    <Pressable
+                      style={[styles.sheetActionButton, { backgroundColor: '#F1F3F4' }]}
+                      // Chama a função de compartilhar direto, sem verificar se é dono
+                      onPress={() => handleShareProperty(selectedProp)}
+                    >
+                      <FontAwesome name="share-alt" size={18} color="#3C4043" />
+                      <Text style={[styles.sheetActionText, { color: '#3C4043' }]}>
+                        Enviar
+                      </Text>
+                    </Pressable>
+
+                  </View>
+                </View>
+              </>
+            );
+          })()}
+        </View>
+      )}
+
+      {/* --- 2. CARD DE INFORMAÇÕES DA ROTA (COM SELETOR) --- */}
       {routes.length > 0 && currentRoute && (
-        <View style={[styles.routeInfoCard, 
-          // Borda colorida baseada no alerta (se houver)
-          currentRoute.alert 
-            ? { 
-                borderColor: currentRoute.alert.severity === 'HIGH' ? '#FFCDD2' 
-                : currentRoute.alert.severity === 'MEDIUM' ? '#FFF9C4' 
-                : '#C8E6C9', 
-                borderWidth: 2 
-              } 
-            : {}
+        <View style={[styles.routeInfoCard,
+        // Borda colorida baseada no alerta (se houver)
+        currentRoute.alert
+          ? {
+            borderColor: currentRoute.alert.severity === 'HIGH' ? '#FFCDD2'
+              : currentRoute.alert.severity === 'MEDIUM' ? '#FFF9C4'
+                : '#C8E6C9',
+            borderWidth: 2
+          }
+          : {}
         ]}>
           <View style={{ flex: 1 }}>
 
-{/* --- SELETOR DE ROTAS (CORRIGIDO PARA LARGURA TOTAL) --- */}
+            {/* --- SELETOR DE ROTAS (CORRIGIDO PARA LARGURA TOTAL) --- */}
             <View style={{ marginBottom: 10 }}>
-                {routes.length > 1 ? (
-                    // CASO A: TEM ALTERNATIVA (Mostra botões expandidos)
-                    <View style={{ 
-                        flexDirection: 'row', 
-                        backgroundColor: '#f0f0f0', 
-                        borderRadius: 8, 
-                        padding: 4, 
-                        width: '100%', // <--- MUDANÇA 1: Ocupa tudo
-                        // alignSelf removido
-                    }}>
-                        {routes.map((_, index) => {
-                        const isActive = selectedRouteIndex === index;
-                        return (
-                            <Pressable
-                            key={index}
-                            onPress={() => setSelectedRouteIndex(index)}
-                            style={{ 
-                                flex: 1, // <--- MUDANÇA 2: Divide o espaço igualmente
-                                alignItems: 'center', // Centraliza o texto
-                                paddingVertical: 8,   // Mais altura para o toque
-                                backgroundColor: isActive ? 'white' : 'transparent', 
-                                borderRadius: 6, 
-                                elevation: isActive ? 2 : 0,
-                                shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 1
-                            }}
-                            >
-                            <Text style={{ 
-                                fontSize: 12, 
-                                fontWeight: 'bold', 
-                                color: isActive ? '#FF5722' : '#999'
-                            }}>
-                                {index === 0 ? "Principal" : "Alternativa"}
-                            </Text>
-                            </Pressable>
-                        );
-                        })}
-                    </View>
-                ) : (
-                    // CASO B: SÓ TEM UMA ROTA
-                    <View style={{ 
-                        backgroundColor: '#E3F2FD', paddingHorizontal: 8, paddingVertical: 4, 
-                        borderRadius: 4, alignSelf: 'flex-start' 
-                    }}>
-                        <Text style={{ fontSize: 11, color: '#1976D2', fontWeight: 'bold' }}>ROTA PRINCIPAL</Text>
-                    </View>
-                )}
+              {routes.length > 1 ? (
+                // CASO A: TEM ALTERNATIVA (Mostra botões expandidos)
+                <View style={{
+                  flexDirection: 'row',
+                  backgroundColor: '#f0f0f0',
+                  borderRadius: 8,
+                  padding: 4,
+                  width: '100%', // <--- MUDANÇA 1: Ocupa tudo
+                  // alignSelf removido
+                }}>
+                  {routes.map((_, index) => {
+                    const isActive = selectedRouteIndex === index;
+                    return (
+                      <Pressable
+                        key={index}
+                        onPress={() => setSelectedRouteIndex(index)}
+                        style={{
+                          flex: 1, // <--- MUDANÇA 2: Divide o espaço igualmente
+                          alignItems: 'center', // Centraliza o texto
+                          paddingVertical: 8,   // Mais altura para o toque
+                          backgroundColor: isActive ? 'white' : 'transparent',
+                          borderRadius: 6,
+                          elevation: isActive ? 2 : 0,
+                          shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 1
+                        }}
+                      >
+                        <Text style={{
+                          fontSize: 12,
+                          fontWeight: 'bold',
+                          color: isActive ? '#FF5722' : '#999'
+                        }}>
+                          {index === 0 ? "Principal" : "Alternativa"}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                // CASO B: SÓ TEM UMA ROTA
+                <View style={{
+                  backgroundColor: '#E3F2FD', paddingHorizontal: 8, paddingVertical: 4,
+                  borderRadius: 4, alignSelf: 'flex-start'
+                }}>
+                  <Text style={{ fontSize: 11, color: '#1976D2', fontWeight: 'bold' }}>ROTA PRINCIPAL</Text>
+                </View>
+              )}
             </View>
 
             {/* BARRA DE CLIMA */}
             {currentRoute.alert && (
               <View style={{
                 flexDirection: 'row',
-                backgroundColor: currentRoute.alert.severity === 'HIGH' ? '#FFEBEE' 
-                  : currentRoute.alert.severity === 'MEDIUM' ? '#FFFDE7' 
-                  : '#E8F5E9',
+                backgroundColor: currentRoute.alert.severity === 'HIGH' ? '#FFEBEE'
+                  : currentRoute.alert.severity === 'MEDIUM' ? '#FFFDE7'
+                    : '#E8F5E9',
                 padding: 8, borderRadius: 6, marginBottom: 10, alignItems: 'center'
               }}>
-                <FontAwesome 
-                  name={currentRoute.alert.severity === 'LOW' ? 'sun-o' : 'exclamation-triangle'} 
-                  size={14} 
-                  color={currentRoute.alert.severity === 'HIGH' ? '#D32F2F' : currentRoute.alert.severity === 'MEDIUM' ? '#FBC02D' : '#2E7D32'} 
-                  style={{ marginRight: 6 }} 
+                <FontAwesome
+                  name={currentRoute.alert.severity === 'LOW' ? 'sun-o' : 'exclamation-triangle'}
+                  size={14}
+                  color={currentRoute.alert.severity === 'HIGH' ? '#D32F2F' : currentRoute.alert.severity === 'MEDIUM' ? '#FBC02D' : '#2E7D32'}
+                  style={{ marginRight: 6 }}
                 />
-                <Text style={{ 
-                  color: currentRoute.alert.severity === 'HIGH' ? '#C62828' : currentRoute.alert.severity === 'MEDIUM' ? '#F57F17' : '#1B5E20', 
-                  fontSize: 12, fontWeight: 'bold', flex: 1 
+                <Text style={{
+                  color: currentRoute.alert.severity === 'HIGH' ? '#C62828' : currentRoute.alert.severity === 'MEDIUM' ? '#F57F17' : '#1B5E20',
+                  fontSize: 12, fontWeight: 'bold', flex: 1
                 }}>
                   {currentRoute.alert.title}
                 </Text>
@@ -1422,12 +1513,12 @@ const uploadImage = async (uri: string, propertyId: number) => {
 
           {/* BOTÃO FECHAR */}
           <Pressable
-            onPress={() => { 
-                setRoutes([]); 
-                setRouteDestinationId(null); 
-                setSelectedRouteIndex(0); 
-                setSelectedMarkerId(null); 
-                setRouteOriginId(null); 
+            onPress={() => {
+              setRoutes([]);
+              setRouteDestinationId(null);
+              setSelectedRouteIndex(0);
+              setSelectedMarkerId(null);
+              setRouteOriginId(null);
             }}
             style={{ marginLeft: 20, padding: 5 }}
           >
@@ -1439,15 +1530,18 @@ const uploadImage = async (uri: string, propertyId: number) => {
       {/* Botão GPS */}
       <Pressable style={styles.gpsButton} onPress={() => {
         if (userLocation && mapViewRef.current) {
-          mapViewRef.current.animateToRegion({ ...userLocation, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 1000);
+          mapViewRef.current.animateToRegion({
+            ...userLocation,
+            latitudeDelta: 0.005, // Zoom consistente com o inicial
+            longitudeDelta: 0.005
+          }, 1000);
         } else { Alert.alert("Localização", "Não foi possível obter sua localização."); }
       }}>
-        {/* Substitui o Text por um Ícone */}
         <FontAwesome name="location-arrow" size={24} color="white" />
       </Pressable>
-      
+
       {routes.length > 0 && (
-        <Pressable 
+        <Pressable
           style={[styles.gpsButton, { bottom: 110, backgroundColor: '#FFC107' }]} // Acima do botão GPS e Amarelo
           onPress={() => setIsAlertModalVisible(true)}
         >
@@ -1521,8 +1615,8 @@ const uploadImage = async (uri: string, propertyId: number) => {
           <Text>Carregando...</Text>
         </View>
       )}
-{/* --- 3. MODAL DE SELEÇÃO DE DESTINO/ORIGEM --- */}
-<Modal
+      {/* --- 3. MODAL DE SELEÇÃO DE DESTINO/ORIGEM --- */}
+      <Modal
         visible={isRouteListVisible}
         animationType="slide"
         transparent={true}
@@ -1531,47 +1625,47 @@ const uploadImage = async (uri: string, propertyId: number) => {
         <View style={styles.modalContainer}>
           {/* AQUI ESTÁ O SEGREDO: height: '80%' força o modal a ter tamanho */}
           <View style={[styles.modalContent, { height: '80%', width: '95%' }]}>
-            
+
             <View style={{ width: '100%', borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 10, marginBottom: 10 }}>
               <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#333', textAlign: 'center' }}>
                 Definir Rota
               </Text>
               <Text style={{ fontSize: 12, color: '#666', textAlign: 'center' }}>
-                {isSelectedOwner 
-                  ? "Saindo da sua propriedade (ou indo para ela)" 
+                {isSelectedOwner
+                  ? "Saindo da sua propriedade (ou indo para ela)"
                   : "Indo para esta propriedade"}
               </Text>
             </View>
 
             {/* --- OPÇÃO 1: GPS (SEMPRE VISÍVEL NO TOPO) --- */}
             <Pressable
-                style={{
-                  flexDirection: 'row', alignItems: 'center', backgroundColor: '#E8F5E9',
-                  padding: 15, borderRadius: 8, marginBottom: 15, width: '100%',
-                  borderWidth: 1, borderColor: '#C8E6C9'
-                }}
-                // Ação: Do GPS -> Para a propriedade selecionada
-                onPress={() => handleTraceRoute(null, 'GPS_TO_PROP')}
+              style={{
+                flexDirection: 'row', alignItems: 'center', backgroundColor: '#E8F5E9',
+                padding: 15, borderRadius: 8, marginBottom: 15, width: '100%',
+                borderWidth: 1, borderColor: '#C8E6C9'
+              }}
+              // Ação: Do GPS -> Para a propriedade selecionada
+              onPress={() => handleTraceRoute(null, 'GPS_TO_PROP')}
             >
-                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#4CAF50', justifyContent: 'center', alignItems: 'center', marginRight: 15 }}>
-                  <FontAwesome name="location-arrow" size={20} color="white" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: '#2E7D32' }}>
-                    Usar minha Localização (GPS)
-                  </Text>
-                  <Text style={{ fontSize: 12, color: '#555' }}>
-                    Traçar rota: <Text style={{fontWeight:'bold'}}>GPS</Text> ➔ <Text style={{fontWeight:'bold'}}>Esta Propriedade</Text>
-                  </Text>
-                </View>
-                <FontAwesome name="chevron-right" size={14} color="#4CAF50" />
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#4CAF50', justifyContent: 'center', alignItems: 'center', marginRight: 15 }}>
+                <FontAwesome name="location-arrow" size={20} color="white" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: 'bold', fontSize: 16, color: '#2E7D32' }}>
+                  Usar minha Localização (GPS)
+                </Text>
+                <Text style={{ fontSize: 12, color: '#555' }}>
+                  Traçar rota: <Text style={{ fontWeight: 'bold' }}>GPS</Text> ➔ <Text style={{ fontWeight: 'bold' }}>Esta Propriedade</Text>
+                </Text>
+              </View>
+              <FontAwesome name="chevron-right" size={14} color="#4CAF50" />
             </Pressable>
 
             {/* --- DIVISÓRIA --- */}
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
               <View style={{ flex: 1, height: 1, backgroundColor: '#ddd' }} />
               <Text style={{ marginHorizontal: 10, color: '#999', fontSize: 12, fontWeight: 'bold' }}>
-                 OU ENTRE PROPRIEDADES
+                OU ENTRE PROPRIEDADES
               </Text>
               <View style={{ flex: 1, height: 1, backgroundColor: '#ddd' }} />
             </View>
@@ -1581,7 +1675,7 @@ const uploadImage = async (uri: string, propertyId: number) => {
               flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5',
               borderRadius: 8, paddingHorizontal: 10, marginBottom: 5, height: 45, width: '100%'
             }}>
-              <FontAwesome name="search" size={16} color="#999" style={{marginRight: 8}} />
+              <FontAwesome name="search" size={16} color="#999" style={{ marginRight: 8 }} />
               <TextInput
                 style={{ flex: 1, fontSize: 15, color: '#333' }}
                 placeholder={isSelectedOwner ? "Buscar destino (vizinhos)..." : "Buscar origem (suas)..."}
@@ -1594,9 +1688,9 @@ const uploadImage = async (uri: string, propertyId: number) => {
                 </Pressable>
               )}
             </View>
-            
+
             <Text style={{ fontSize: 11, color: '#aaa', marginBottom: 10, alignSelf: 'flex-start' }}>
-               {filteredDestinations.length} propriedades disponíveis na lista
+              {filteredDestinations.length} propriedades disponíveis na lista
             </Text>
 
             {/* --- LISTA (DROPDOWN) --- */}
@@ -1607,7 +1701,7 @@ const uploadImage = async (uri: string, propertyId: number) => {
               contentContainerStyle={{ paddingBottom: 20 }}
               keyboardShouldPersistTaps="handled"
               initialNumToRender={10}
-              
+
               renderItem={({ item }) => (
                 <Pressable
                   style={{
@@ -1621,7 +1715,7 @@ const uploadImage = async (uri: string, propertyId: number) => {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: 'bold', fontSize: 15, color: '#333' }}>
-                        {item.nome_propriedade}
+                      {item.nome_propriedade}
                     </Text>
                     <Text style={{ color: '#888', fontSize: 12 }}>
                       {isSelectedOwner ? "Ir para cá" : "Sair daqui"} • {item.car_code}
@@ -1630,7 +1724,7 @@ const uploadImage = async (uri: string, propertyId: number) => {
                   <FontAwesome name="chevron-right" size={12} color="#ccc" />
                 </Pressable>
               )}
-              
+
               ListEmptyComponent={
                 <View style={{ marginTop: 20, alignItems: 'center' }}>
                   <Text style={{ color: '#999' }}>Nenhuma propriedade encontrada.</Text>
@@ -1647,9 +1741,9 @@ const uploadImage = async (uri: string, propertyId: number) => {
                 borderTopWidth: 1,
                 borderColor: '#eee' // Uma linhazinha separadora sutil
               }}
-              onPress={() => { 
-                setIsRouteListVisible(false); 
-                setSearchQuery(''); 
+              onPress={() => {
+                setIsRouteListVisible(false);
+                setSearchQuery('');
               }}
             >
               <Text style={{ color: '#757575', fontWeight: '600', fontSize: 16 }}>
@@ -1669,20 +1763,20 @@ const uploadImage = async (uri: string, propertyId: number) => {
         <View style={styles.modalContainer}>
           <View style={[styles.modalContent, { width: '85%' }]}>
             <Text style={styles.modalTitle}>Relatar Problema na Via</Text>
-            <Text style={{marginBottom: 20, color: '#666', textAlign: 'center'}}>
+            <Text style={{ marginBottom: 20, color: '#666', textAlign: 'center' }}>
               O que você encontrou? Isso ajudará outros motoristas.
             </Text>
 
             {/* Lista de Opções */}
-            <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between'}}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
               {(Object.keys(ALERT_CONFIG) as AlertType[]).map((type) => (
                 <Pressable
                   key={type}
                   style={{
-                    width: '48%', 
-                    backgroundColor: '#f9f9f9', 
-                    padding: 15, 
-                    borderRadius: 8, 
+                    width: '48%',
+                    backgroundColor: '#f9f9f9',
+                    padding: 15,
+                    borderRadius: 8,
                     marginBottom: 10,
                     alignItems: 'center',
                     borderWidth: 1,
@@ -1691,14 +1785,14 @@ const uploadImage = async (uri: string, propertyId: number) => {
                   onPress={() => handleReportAlert(type)}
                   disabled={isReporting}
                 >
-                  <FontAwesome name={ALERT_CONFIG[type].icon as any} size={24} color={ALERT_CONFIG[type].color} style={{marginBottom: 8}} />
-                  <Text style={{fontSize: 12, fontWeight: 'bold', color: '#333'}}>{ALERT_CONFIG[type].label}</Text>
+                  <FontAwesome name={ALERT_CONFIG[type].icon as any} size={24} color={ALERT_CONFIG[type].color} style={{ marginBottom: 8 }} />
+                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#333' }}>{ALERT_CONFIG[type].label}</Text>
                 </Pressable>
               ))}
             </View>
 
-            <Pressable 
-              style={[styles.button, styles.cancelButton, { marginTop: 10, width: '100%' }]} 
+            <Pressable
+              style={[styles.button, styles.cancelButton, { marginTop: 10, width: '100%' }]}
               onPress={() => setIsAlertModalVisible(false)}
             >
               <Text style={styles.buttonText}>Cancelar</Text>
@@ -1714,7 +1808,7 @@ const uploadImage = async (uri: string, propertyId: number) => {
       >
         <View style={styles.modalContainer}>
           <View style={[styles.modalContent, { maxHeight: '60%' }]}>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginBottom: 10}}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginBottom: 10 }}>
               <Text style={styles.modalTitle}>Alertas neste local</Text>
               <Pressable onPress={() => setSelectedClusterAlerts(null)}>
                 <FontAwesome name="times" size={24} color="#666" />
@@ -1724,24 +1818,24 @@ const uploadImage = async (uri: string, propertyId: number) => {
             <FlatList
               data={selectedClusterAlerts || []}
               keyExtractor={(item) => item.id}
-              style={{width: '100%'}}
+              style={{ width: '100%' }}
               renderItem={({ item }) => {
                 const config = ALERT_CONFIG[item.type];
                 const minutesAgo = Math.round((Date.now() - item.timestamp) / 60000);
                 return (
                   <View style={{
-                    flexDirection: 'row', alignItems: 'center', 
+                    flexDirection: 'row', alignItems: 'center',
                     paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee'
                   }}>
                     <View style={{
-                      width: 40, height: 40, borderRadius: 20, 
+                      width: 40, height: 40, borderRadius: 20,
                       backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center', marginRight: 12
                     }}>
                       <FontAwesome name={config.icon as any} size={20} color={config.color} />
                     </View>
                     <View>
-                      <Text style={{fontWeight: 'bold', fontSize: 16, color: '#333'}}>{config.label}</Text>
-                      <Text style={{color: '#666', fontSize: 12}}>Reportado há {minutesAgo} min</Text>
+                      <Text style={{ fontWeight: 'bold', fontSize: 16, color: '#333' }}>{config.label}</Text>
+                      <Text style={{ color: '#666', fontSize: 12 }}>Reportado há {minutesAgo} min</Text>
                     </View>
                   </View>
                 );
@@ -1759,33 +1853,33 @@ const uploadImage = async (uri: string, propertyId: number) => {
         onRequestClose={() => setIsFullScreenImageVisible(false)}
       >
         <View style={styles.fullScreenContainer}>
-           {/* Botão Fechar Grande */}
-           <Pressable 
-              style={styles.fullScreenCloseButton} 
-              onPress={() => setIsFullScreenImageVisible(false)}
-           >
-              <FontAwesome name="times" size={24} color="white" />
-           </Pressable>
+          {/* Botão Fechar Grande */}
+          <Pressable
+            style={styles.fullScreenCloseButton}
+            onPress={() => setIsFullScreenImageVisible(false)}
+          >
+            <FontAwesome name="times" size={24} color="white" />
+          </Pressable>
 
-           {/* A Imagem */}
-           {(() => {
-              const prop = mapProperties.find(p => (p.id ?? p.car_code) === selectedMarkerId);
-              if (prop?.photo_url) {
-                  return (
-                    <Image 
-                        source={{ uri: `${API_URL}/${prop.photo_url}` }} 
-                        style={{ width: '100%', height: '80%' }}
-                        resizeMode="contain" // Garante que a foto inteira apareça sem cortes
-                    />
-                  );
-              }
-              return null;
-           })()}
+          {/* A Imagem */}
+          {(() => {
+            const prop = mapProperties.find(p => (p.id ?? p.car_code) === selectedMarkerId);
+            if (prop?.photo_url) {
+              return (
+                <Image
+                  source={{ uri: `${API_URL}/${prop.photo_url}` }}
+                  style={{ width: '100%', height: '80%' }}
+                  resizeMode="contain" // Garante que a foto inteira apareça sem cortes
+                />
+              );
+            }
+            return null;
+          })()}
         </View>
       </Modal>
     </View>
   );
-  
+
 }
 
 // --- Styles ---
@@ -1943,23 +2037,23 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 
-// O ponto central sólido (igual ao anterior, mas sem posição absoluta)
-userLocationDot: {
-  width: 18,
-  height: 18,
-  borderRadius: 9,
-  backgroundColor: '#007BFF', // Azul sólido
-  borderWidth: 3,
-  borderColor: 'white', // Borda branca
-  
-  // Sombra para dar um "pop" (opcional, mas fica bonito)
-  elevation: 4, // Android
-  shadowColor: "#000", // iOS
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.3,
-  shadowRadius: 3,
-},
-// ... outros estilos ...
+  // O ponto central sólido (igual ao anterior, mas sem posição absoluta)
+  userLocationDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#007BFF', // Azul sólido
+    borderWidth: 3,
+    borderColor: 'white', // Borda branca
+
+    // Sombra para dar um "pop" (opcional, mas fica bonito)
+    elevation: 4, // Android
+    shadowColor: "#000", // iOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
+  // ... outros estilos ...
 
   // BARRA DE PESQUISA GLOBAL
   searchBarContainer: {
@@ -2030,7 +2124,7 @@ userLocationDot: {
     borderBottomColor: '#f0f0f0',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FAFAFA', 
+    backgroundColor: '#FAFAFA',
     borderRadius: 8,
     marginBottom: 8,
     paddingHorizontal: 10,
@@ -2038,8 +2132,8 @@ userLocationDot: {
     borderColor: '#EEEEEE'
   },
   gpsIconCircle: {
-    padding: 8, 
-    borderRadius: 20, 
+    padding: 8,
+    borderRadius: 20,
     marginRight: 15,
     width: 36,
     height: 36,
@@ -2047,12 +2141,12 @@ userLocationDot: {
     alignItems: 'center'
   },
   gpsOptionTitle: {
-    fontWeight: 'bold', 
-    fontSize: 15, 
+    fontWeight: 'bold',
+    fontSize: 15,
     color: '#333'
   },
   gpsOptionSubtitle: {
-    color: '#777', 
+    color: '#777',
     fontSize: 11
   },
   // --- ESTILOS DO BOTTOM SHEET ---
