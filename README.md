@@ -35,11 +35,11 @@ A aplicação oferecerá:
 | 13 | Média | Como usuário, quero visualizar os dados fornecidos pelo cliente, incluindo área do projeto, área do imóvel e rotas. | 8 pts | 2 | Áreas e rotas aparecem vinculadas à propriedade. | ✅ |
 | 19 | Média | Como usuário, quero definir um ponto de entrada da propriedade para que o cálculo de rota utilize esse ponto como referência. | 5 pts | 3 | Rota usa o ponto de entrada definido pelo usuário. | ⏳ |
 | 7 | Baixa | Como usuário, quero validar no CAR para acessar minhas propriedades. | 5 pts | 2 | Usuário consegue acessar suas propriedades. | ✅ |
-| 14 | Baixa | Como usuário, quero planejar rotas entre duas propriedades. | 8 pts | 3 | Usuário visualiza caminho entre propriedades. | ⏳ |
-| 15 | Baixa | Como usuário, quero ver tempo, distância e rotas alternativas. | 5 pts | 3 | Informações aparecem corretamente. | ⏳ |
-| 16 | Baixa | Como usuário, quero criar alertas colaborativos sobre condições da estrada. | 5 pts | 3 | Alertas ficam visíveis no mapa. | ⏳ |
-| 17 | Baixa | Como usuário, quero receber alertas meteorológicos integrados de uma API de clima. | 5 pts | 3 | Alertas aparecem em tempo real. | ⏳ |
-| 18 | Baixa | Como usuário, quero que os alertas tenham validade/expiração automática. | 3 pts | 3 | Alertas vencidos desaparecem do mapa. | ⏳ |
+| 14 | Baixa | Como usuário, quero planejar rotas entre duas propriedades. | 8 pts | 3 | Usuário visualiza caminho entre propriedades. | ✅ |
+| 15 | Baixa | Como usuário, quero ver tempo, distância e rotas alternativas. | 5 pts | 3 | Informações aparecem corretamente. | ✅ |
+| 16 | Baixa | Como usuário, quero criar alertas colaborativos sobre condições da estrada. | 5 pts | 3 | Alertas ficam visíveis no mapa. | ✅ |
+| 17 | Baixa | Como usuário, quero receber alertas meteorológicos integrados de uma API de clima. | 5 pts | 3 | Alertas aparecem em tempo real. | ✅ |
+| 18 | Baixa | Como usuário, quero que os alertas tenham validade/expiração automática. | 3 pts | 3 | Alertas vencidos desaparecem do mapa. | ✅ |
 
 
 
